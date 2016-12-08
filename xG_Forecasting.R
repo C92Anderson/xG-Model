@@ -8,11 +8,9 @@
 #
 # LAST UPDATED:   12/07/2016
 #
-# PROCESS:        0 - SYSTEM PREP
-#                 1 - UPDATE GCODE AND LOAD NHL PBP DATA USING NHLSCRAPR
-#                 2 - LOGISTIC MODEL TO DEVELOP XG MODEL
-#                 3 - FACTOR ANALYSIS 
-#                 4 - K-MEANS CLUSTERING AND OVERLAY SEGMENT AND TRANSACTION DATA
+# PROCESS:        0 - SYSTEM PREP AND LOAD DATA FROM xG_Model_nhlscrapr.R
+#                 1 - CREATE GOALIE SEASON, CAREER DATASET
+#                 2 - ATTEMPT TO PREDICT GOALIE PERFORMANCE
 #
 ############################################################################################################################################################################
 
@@ -24,79 +22,51 @@ library(glmnet); library(nhlscrapr); library(caret)
 getwd()
 load("~/Documents/CWA/Hockey Data/roster.Rda")
 
+############################################################################################################################################################################
+######## 1.A SUMMARY BEST GOALIE GAME, SEASON, AND CAREER
+############################################################################################################################################################################
 # Load scored data
 load("~/Documents/CWA/Hockey Data/xG.scored.data.RData")
 
-#################################################################################
-##### Summarize Goalie Season and Produce Metrics
-#################################################################################
+# Prepare all shots against goaltenders in shot sample
+goalie.shots <- scored.data %>%
+  mutate(Game.ID = as.character(gcode),
+         SA = 1,
+         GA = as.numeric(goal)-1) %>%
+  select(SA.Goalie, season, Game.ID, seconds, goal, xG, SA, GA) 
 
-# List of goalies in season
-all.goalie.list <- scored.data %>% 
-  filter(nchar(SA.Goalie) > 0) %>% 
-  distinct(SA.Goalie) %>% as.list()
-
-# Loop through each goalie and append
-all.goalie.game <- plyr::rbind.fill(lapply(FUN=QREAM.fun,all.goalie.list))
-
-
-# List of goalies in season
-all.goalie.list <- scored.data %>% 
-  filter(nchar(SA.Goalie) > 0) %>% 
-  distinct(SA.Goalie) %>% as.list()
-
-# Loop through each goalie and append
-all.goalie.game <- plyr::rbind.fill(lapply(FUN=QREAM.fun,all.goalie.list))
-
-goalie.season.level <- all.goalie.game %>%
+# Calculate season-level xG Saved per 100 shots
+goalie.game <- goalie.shots %>%
+  group_by(SA.Goalie, season, Game.ID) %>%
+  summarise(game.xG = sum(xG),
+            game.Goals = sum(GA),
+            game.Shots = sum(SA)) %>%
+  mutate(game.xGS.100 = (game.xG - game.Goals) / (game.Shots / 100)) %>%
   group_by(SA.Goalie, season) %>%
-  do(last.shot = tail(., n=1))
+  summarise(game.variance = sd(game.xGS.100), games=n())
 
-# Function to calculate goalie-season level scores
-goalie.season.scores <- function(goalie) {
-  
-  output <- NULL
-  ###loop through each possible season
-  for(season in c("20162017","20152016","20142015","20132014","20122013","20112012","20102011","20092010","20082009","20072008")) {
-    
-    goalie.season <- subset(goalie.game,SA.Goalie==goalie & Season==season)
-    
-    ##only calculate season if over 10 games
-    if(nrow(goalie.season) > 10 ) {
-      
-      lm.goalie.season <- lm(goalie.season$QREAM ~ goalie.season$cum.Shots)
-      Season.Lift <- as.numeric(lm.goalie.season$coefficients[2])
-      Season.Consistency <- summary(lm.goalie.season)$r.squared
-      out <- data.frame(cbind(Season.Lift,Season.Consistency))
-      
-      out$Season.ShotsAgainst <- max(goalie.season$cum.Shots) - min(goalie.season$cum.Shots - goalie.season$game.SA)
-      out$Season.Goals <- max(goalie.season$cum.Goals) - min(goalie.season$cum.Goals - goalie.season$game.GA)
-      out$Season.xGA <- max(goalie.season$cum.xG) - min(goalie.season$cum.xG - goalie.season$game.xGA)
-      
-      ####Career to Date
-      out$CTD.Shots <- min(goalie.season$cum.Shots - goalie.season$game.SA)
-      out$CTD.Lift <- head(goalie.season$QREAM - (goalie.season$game.xGA - goalie.season$game.GA),1)
-      
-      goalie.CTD <- subset(goalie.game,SA.Goalie==goalie & as.numeric(Season) < as.numeric(season))
-      
-      if(nrow(goalie.CTD) > 10) {
-        
-        lm.goalie.CTD <- lm(goalie.CTD$QREAM ~ goalie.CTD$cum.Shots)
-        out$CTD.Lift <- as.numeric(lm.goalie.CTD$coefficients[2])
-        out$CTD.Consistency <- summary(lm.goalie.CTD)$r.squared
-        
-        ####Last Season
-        goalie.last.season <- subset(goalie.game,SA.Goalie==goalie & as.numeric(Season) == (as.numeric(season) - 10001))
-        
-        ###only post if last season had over 10 games
-        if(nrow(goalie.last.season) > 10) {
-          
-          lm.goalie.last <- lm(goalie.last.season$QREAM ~ goalie.last.season$cum.Shots)
-          out$Last.Season.Lift <- as.numeric(lm.goalie.last$coefficients[2])
-          out$Last.Season.Consistency <- summary(lm.goalie.last)$r.squared
-          out$Last.Season.Shots <- max(goalie.last.season$cum.Shots) - min(goalie.last.season$cum.Shots - goalie.last.season$game.SA)
-          out$Last.Season.Goals <- max(goalie.last.season$cum.Goals) - min(goalie.last.season$cum.Goals - goalie.last.season$game.GA)
-          
+# Calculate career xG Saved per 100 shots
+goalie.career <- goalie.shots %>%
+  group_by(SA.Goalie) %>%
+  summarise(career.xG = sum(xG),
+            career.Goals = sum(GA),
+            career.Shots = sum(SA)) %>%
+  mutate(career.xGS.100 = (career.xG - career.Goals) / (career.Shots / 100))
+
+# Calculate season-level xG Saved per 100 shots
+goalie.season <- goalie.shots %>%
+  group_by(SA.Goalie, season) %>%
+  summarise(season.xG = sum(xG),
+            season.Goals = sum(GA),
+            season.Shots = sum(SA)) %>%
+  mutate(season.xGS.100 = (season.xG - season.Goals) / (season.Shots / 100)) %>%
+  left_join(goalie.career, by="SA.Goalie") %>%
+  left_join(goalie.game, by=c("SA.Goalie","season")) %>%
+  filter(career.Shots > 1000 & season.Shots > 100) 
+
+
+
+ 
           ###birthday
           dob <-as.Date(unique(roster[which(roster$Full.Name == goalie), "bd"]),format = "%B %d, %Y")
           
