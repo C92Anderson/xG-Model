@@ -15,10 +15,11 @@ Run programs in order:
 
  LAST UPDATED:   12/07/2016
 
- PROCESS:        0 - SYSTEM PREP
-                 1 - UPDATE GCODE AND LOAD NHL PBP DATA USING NHLSCRAPR
-                 2 - LOGISTIC MODEL TO DEVELOP XG MODEL
-                 3 - DEVELOP FUNCTIONS SELECT GOALIE-SEASON AND PLOT GOALIE XG SAVE SUCCESS
+ PROCESS:        
+ 0 - SYSTEM PREP
+ 1 - UPDATE GCODE AND LOAD NHL PBP DATA USING NHLSCRAPR
+ 2 - LOGISTIC MODEL TO DEVELOP XG MODEL
+ 3 - DEVELOP FUNCTIONS SELECT GOALIE-SEASON AND PLOT GOALIE XG SAVE SUCCESS
 
 ############################################################################################################################################################################
 
@@ -35,8 +36,9 @@ Run programs in order:
 
  LAST UPDATED:   12/07/2016
 
- PROCESS:        0 - SYSTEM PREP AND LOAD DATA FROM xG_Model_nhlscrapr.R
-                 1 - CREATE GOALIE SEASON, CAREER DATASET
-                 2 - ATTEMPT TO PREDICT GOALIE PERFORMANCE
+ PROCESS: 
+ 0 - SYSTEM PREP AND LOAD DATA FROM xG_Model_nhlscrapr.R
+ 1 - CREATE GOALIE SEASON, CAREER DATASET
+ 2 - ATTEMPT TO PREDICT GOALIE PERFORMANCE
 
 ############################################################################################################################################################################
