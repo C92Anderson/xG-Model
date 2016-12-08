@@ -80,15 +80,23 @@ pbp.all <- slide(pbp.all, Var = "homezone", NewVar = "lag.zone", slideBy = -1)
 shots.all <- pbp.all %>%
              filter(etype %in% c("SHOT","GOAL") & period %in% c(1:4)) %>%
              mutate(Player = toupper(trimws(substr(ev.player.1, 3, nchar(ev.player.1)))),
+                    SA.Goalie = ifelse(ev.team == hometeam, 
+                                       trimws(substr(away.G, 3, nchar(away.G))),
+                                       trimws(substr(home.G, 3, nchar(home.G)))),
+                    SA.Goalie = ifelse(SA.Goalie == "ILJA BRYZGALOV","ILYA BRYZGALOV",
+                                       ifelse(SA.Goalie == "ALEXANDER AULD","ALEX AULD",
+                                       ifelse(SA.Goalie == "EMMANUEL LEGACE","MANNY LEGACE",
+                                       ifelse(SA.Goalie == "EMMANUEL FERNANDEZ","MANNY FERNANDEZ",
+                                       ifelse(SA.Goalie == "TIMOTHY JR. THOMAS","TIM THOMAS",
+                                       ifelse(SA.Goalie == "SIMEON VARLAMOV","SEMYON VARLAMOV",
+                                       ifelse(SA.Goalie == "JEFF DROUIN-DESLAURIERS","JEFF DESLAURIERS",
+                                                     SA.Goalie))))))),
                     ENG = ifelse(ev.team == awayteam & nchar(home.G) == 0,1,
                           ifelse(ev.team == hometeam & nchar(away.G) == 0,1,
                                         0)),
                     goal = as.factor(ifelse(etype =="GOAL",1,0)),
                     time.index = paste0(as.character(gcode),seconds),
                     even.second = ifelse(as.numeric(seconds) %% 2 == 0,1,0),
-                    SA.Goalie = ifelse(ev.team == hometeam, 
-                                                    trimws(substr(away.G, 3, nchar(away.G))),
-                                                    trimws(substr(home.G, 3, nchar(home.G)))),
                     awaystate = ifelse(nchar(a4) == 0, 3,
                                        ifelse(nchar(a5) == 0, 4,
                                            ifelse(nchar(a6) == 0, 5,
@@ -334,6 +342,9 @@ save(best.model, file="~/Documents/CWA/Hockey Data/xG.best.model.RData")
 ############################################################################################################################################################################
 ########3.A DEVELOP FUNCTIONS SELECT GOALIE-SEASON AND PLOT GOALIE XG SAVE SUCCESS
 ############################################################################################################################################################################
+
+# Load Scored Data
+load("~/Documents/CWA/Hockey Data/xG.scored.data.RData")
 
 # Return dataset of goalie-game level data for selected goalies and seasons
 QREAM.fun <- function(goalie, seasons=c("20072008","20082009","20092010","20102011","20112012",
