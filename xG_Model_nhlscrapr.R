@@ -1,6 +1,32 @@
+############################################################################################################################################################################
+#
+# PROJECT:        xG Model Measuring Goaltender Performance
+#
+# PURPOSE:        Using Logistic Regression create an xG for each shot a goalie faces. 
+#                 Compare xG Against to Actual Goals Against to measure performance
+#
+# CREATED BY:     Cole Anderson (cole92anderson@gmail.com)
+#
+# LAST UPDATED:   12/07/2016
+#
+# PROCESS:        0 - SYSTEM PREP
+#                 1 - UPDATE GCODE AND LOAD NHL PBP DATA USING NHLSCRAPR
+#                 2 - LOGISTIC MODEL TO DEVELOP XG MODEL
+#                 3 - DEVELOP FUNCTIONS SELECT GOALIE-SEASON AND PLOT GOALIE XG SAVE SUCCESS
+#
+############################################################################################################################################################################
+
+############################################################################################################################################################################
+######## 0.A SYSTEM PREP
+############################################################################################################################################################################
 library(ggplot2);library(dplyr); library(DataCombine)
 library(glmnet); library(nhlscrapr); library(caret)
+getwd()
 load("~/Documents/CWA/Hockey Data/roster.Rda")
+
+############################################################################################################################################################################
+########1.A UPDATE GCODE AND LOAD NHL PBP DATA USING NHLSCRAPR
+############################################################################################################################################################################
 
 # Function to pull games from nhlscrapr from current season
 game.pull <- function(game) {
@@ -29,17 +55,17 @@ game.events.17 <- current.data("20390")
 save(game.events.17, file="/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.17.RData")
 
 load(url("http://war-on-ice.com/data/nhlscrapr-core.RData"))
-load("/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.08.RData")
-load("/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.09.RData")
-load("/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.10.RData")
-load("/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.11.RData")
-load("/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.12.RData")
-load("/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.13.RData")
-load("/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.14.RData")
-load("/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.15.RData")
-load("/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.16.RData")
+load("~/Documents/CWA/nhlscrapr-master/game.events.08.RData")
+load("~/Documents/CWA/nhlscrapr-master/game.events.09.RData")
+load("~/Documents/CWA/nhlscrapr-master/game.events.10.RData")
+load("~/Documents/CWA/nhlscrapr-master/game.events.11.RData")
+load("~/Documents/CWA/nhlscrapr-master/game.events.12.RData")
+load("~/Documents/CWA/nhlscrapr-master/game.events.13.RData")
+load("~/Documents/CWA/nhlscrapr-master/game.events.14.RData")
+load("~/Documents/CWA/nhlscrapr-master/game.events.15.RData")
+load("~/Documents/CWA/nhlscrapr-master/game.events.16.RData")
 
-
+# Combine season data
 pbp.all <- plyr::rbind.fill(game.events.08,game.events.09,game.events.10,game.events.11,
                             game.events.12,game.events.13,game.events.14,game.events.15,
                             game.events.16,game.events.17)
@@ -48,7 +74,9 @@ pbp.all <- slide(pbp.all, Var = "seconds", NewVar = "lag.seconds", slideBy = -1)
 pbp.all <- slide(pbp.all, Var = "etype", NewVar = "lag.event", slideBy = -1)
 pbp.all <- slide(pbp.all, Var = "homezone", NewVar = "lag.zone", slideBy = -1)
 
-# Limit to shots and prep
+############################################################################################################################################################################
+########1.B LIMIT TO SHOTS AGAINST AND DEVELOP FEATURES
+############################################################################################################################################################################
 shots.all <- pbp.all %>%
              filter(etype %in% c("SHOT","GOAL") & period %in% c(1:4)) %>%
              mutate(Player = toupper(trimws(substr(ev.player.1, 3, nchar(ev.player.1)))),
@@ -111,7 +139,9 @@ aggregate(distance ~ SA.Goalie, data = shots.all, FUN = length)
 # Check even distribution
 sum(shots.all$even.second) / length(shots.all$even.second) #0.498641
 
-# Calculate Shooter Skill (not including blocked/missed shots)
+############################################################################################################################################################################
+########1.C CALCULATE SHOOTER SKILL (not including blocked/missed shots)
+############################################################################################################################################################################
 load(url("http://war-on-ice.com/data/nhlscrapr-core.RData")) # Not updated
 
 # Find player-level shooting percentage
@@ -144,9 +174,9 @@ shots.all <- shots.all %>%
 
 save(shots.all, file="~/Documents/CWA/Hockey Data/xG.shots.all.RData")
 
-#################################################################################
-##### Modeling Function
-#################################################################################
+############################################################################################################################################################################
+########2.A LOGISTIC MODEL TO DEVELOP XG MODEL
+############################################################################################################################################################################
 lm.cv.10 <- function(input, model.vars, extra.vars) {
       
       library(modelr); library(dplyr); library(purrr); library(broom); library(tidyr); library(ggplot2)
@@ -295,22 +325,27 @@ scored.data %>%
   summarise(xG=sum(xG), goals=sum(as.numeric(goal)-1), 
             avg.shot=mean(distance), avg.angle=mean(shot.angle), rebound=mean(as.numeric(is.Rebound)-1))
 
+############################################################################################################################################################################
+########2.B SAVE MODEL AND SCORED SHOTS
+############################################################################################################################################################################
 save(scored.data, file="~/Documents/CWA/Hockey Data/xG.scored.data.RData")
 save(best.model, file="~/Documents/CWA/Hockey Data/xG.best.model.RData")
 
-#################################################################################
-##### Score and Visualize
-#################################################################################
+############################################################################################################################################################################
+########3.A DEVELOP FUNCTIONS SELECT GOALIE-SEASON AND PLOT GOALIE XG SAVE SUCCESS
+############################################################################################################################################################################
 
-# Goalie viz function
-QREAM.fun <- function(goalie, seasons) {
+# Return dataset of goalie-game level data for selected goalies and seasons
+QREAM.fun <- function(goalie, seasons=c("20072008","20082009","20092010","20102011","20112012",
+                                        "20122013","20132014","20142015","20152016","20162017")) {
   
   library(dplyr)
   
-  # Select Goalie, Order by season, game, shot
+  # Select Goalies, Order by season, game, shot
   goalie.set <- scored.data %>%
         filter(SA.Goalie %in% goalie & season %in% seasons) 
   
+  # Count cumulative numbers by goalie
   goalie.set <- goalie.set %>%
         mutate(Game.ID = as.character(gcode),
                SA = 1,
@@ -339,28 +374,31 @@ QREAM.fun <- function(goalie, seasons) {
     arrange(SA.Goalie, season, Game.ID) %>%
     select(SA.Goalie, season, QREAM, Game.ID, game.SA, game.xGA, game.GA, cum.Shots, cum.Goals , cum.xG)
   
+  # Return dataset of goalie-game level data for selected goalies and seasons
   return(goalie.game)
   
 }
-
 
 # Plot all goalies xG lift
 xG.plot.fun <- function(goalies, seasons, data) {
   
   library(ggplot2); library(dplyr); library(ggrepel)
   
+  # Subset goalies to highlight  
   select.goalies <- data %>%
       filter(SA.Goalie %in% goalies & season %in% seasons) %>%
       arrange(SA.Goalie, season, Game.ID)
   
+  # Find last game to create label
   last.game <- select.goalies %>%
       group_by(SA.Goalie) %>%
       do(tail(., n=1))
   
+  # In-take all goalie-game level data and select season
   data <- data %>%
     filter(season %in% seasons)
-  
-  
+
+  # Overlay select goalies on all goalies limited to season  
   ggplot(data=data, aes(x=cum.Shots,y=QREAM, group=SA.Goalie)) + 
     geom_line(colour="grey") +
     geom_line(data=select.goalies,size=1.5,aes(x=cum.Shots,y=QREAM,color=as.factor(select.goalies$season))) +
@@ -378,6 +416,7 @@ xG.plot.fun <- function(goalies, seasons, data) {
 }
 
 
+# Call function with goalie list and season, call cumulative counts and plot function
 goalie.plot <- function(goalies, 
                         seasons=c("20072008","20082009","20092010","20102011","20112012",
                                   "20122013","20132014","20142015","20152016","20162017")) {
@@ -389,12 +428,17 @@ goalie.plot <- function(goalies,
        
       # Loop through each goalie and append
       all.goalie.game <- plyr::rbind.fill(lapply(FUN=QREAM.fun,all.goalie.list, seasons))
-
+      
+      # Call function to plot games by season
       p <- xG.plot.fun(goalies, seasons, all.goalie.game)
       
       return(list(p,all.goalie.game))
       
-      }
+}
+
+############################################################################################################################################################################
+########3.B CALL FUNCTION FOR SELECT GOALIE-SEASONS AND PLOT
+############################################################################################################################################################################
 
 goalie.plot(c("CAREY PRICE","BRADEN HOLTBY","MARTIN JONES", "SERGEI BOBROVSKY", "COREY CRAWFORD","PEKKA RINNE",
               "BRIAN ELLIOTT","TUUKKA RASK"),
@@ -407,5 +451,11 @@ goalie.plot(c("CAREY PRICE","CAM TALBOT", "SERGEI BOBROVSKY", "COREY CRAWFORD","
 
 
 
-all.goalies.1617 <- goalie.plot(c("BRIAN ELLIOTT","CHAD JOHNSON"),c("20162017"))[[2]]
+goalie.plot(c("STEVE MASON"))[[1]]
+goalie.plot(c("STEVE MASON"),c("20122013","20132014","20142015","20152016","20162017"))[[1]]
 
+goalie.plot(c("ANDREI VASILEVSKIY","MATTHEW MURRAY","CONNOR HELLEBUYCK"),c("20152016","20162017"))[[1]]
+
+goalie.plot(c("TUUKKA RASK","BRADEN HOLTBY"),c("20152016","20162017"))[[1]]
+
+goalie.plot(c("FREDERIK ANDERSEN","JONATHAN BERNIER","JAMES REIMER","KARRI RAMO","JHONAS ENROTH"),c("20152016","20162017"))[[1]]
