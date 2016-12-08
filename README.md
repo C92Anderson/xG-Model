@@ -31,7 +31,7 @@ Run programs in order:
 
  PURPOSE:        Develop features to possibly predict future goaltender performance. 
 
-# CREATED BY:     Cole Anderson (cole92anderson@gmail.com)
+ CREATED BY:     Cole Anderson (cole92anderson@gmail.com)
 
  LAST UPDATED:   12/07/2016
 
