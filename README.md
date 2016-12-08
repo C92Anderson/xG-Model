@@ -2,7 +2,7 @@ Run programs in order:
 1. xG_Model_nhlscrapr.R - Takes raw data from nhlscrapr and create goaltender-centric xG model
 2. xG_Forecasting.R
 
-1. xG_Model_nhlscrapr.R
+xG_Model_nhlscrapr.R
 
 ############################################################################################################################################################################
 
@@ -15,7 +15,8 @@ Run programs in order:
 
  LAST UPDATED:   12/07/2016
 
- PROCESS:        
+ PROCESS:   
+ 
  0 - SYSTEM PREP
  1 - UPDATE GCODE AND LOAD NHL PBP DATA USING NHLSCRAPR
  2 - LOGISTIC MODEL TO DEVELOP XG MODEL
@@ -24,7 +25,7 @@ Run programs in order:
 ############################################################################################################################################################################
 
 
-2. xG_Forecasting.R
+xG_Forecasting.R
 
 ############################################################################################################################################################################
 
@@ -37,6 +38,7 @@ Run programs in order:
  LAST UPDATED:   12/07/2016
 
  PROCESS: 
+ 
  0 - SYSTEM PREP AND LOAD DATA FROM xG_Model_nhlscrapr.R
  1 - CREATE GOALIE SEASON, CAREER DATASET
  2 - ATTEMPT TO PREDICT GOALIE PERFORMANCE
