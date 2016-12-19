@@ -51,19 +51,19 @@ current.data <- function(last.game) {
 }
 
 # Update with last game from current season
-game.events.17 <- current.data("20390")
+game.events.17 <- current.data("20441")
 save(game.events.17, file="/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.17.RData")
 
-load(url("http://war-on-ice.com/data/nhlscrapr-core.RData"))
-load("~/Documents/CWA/nhlscrapr-master/game.events.08.RData")
-load("~/Documents/CWA/nhlscrapr-master/game.events.09.RData")
-load("~/Documents/CWA/nhlscrapr-master/game.events.10.RData")
-load("~/Documents/CWA/nhlscrapr-master/game.events.11.RData")
-load("~/Documents/CWA/nhlscrapr-master/game.events.12.RData")
-load("~/Documents/CWA/nhlscrapr-master/game.events.13.RData")
-load("~/Documents/CWA/nhlscrapr-master/game.events.14.RData")
-load("~/Documents/CWA/nhlscrapr-master/game.events.15.RData")
-load("~/Documents/CWA/nhlscrapr-master/game.events.16.RData")
+#load(url("http://war-on-ice.com/data/nhlscrapr-core.RData"))
+#load("~/Documents/CWA/nhlscrapr-master/game.events.08.RData")
+#load("~/Documents/CWA/nhlscrapr-master/game.events.09.RData")
+#load("~/Documents/CWA/nhlscrapr-master/game.events.10.RData")
+#load("~/Documents/CWA/nhlscrapr-master/game.events.11.RData")
+#load("~/Documents/CWA/nhlscrapr-master/game.events.12.RData")
+#load("~/Documents/CWA/nhlscrapr-master/game.events.13.RData")
+#load("~/Documents/CWA/nhlscrapr-master/game.events.14.RData")
+#load("~/Documents/CWA/nhlscrapr-master/game.events.15.RData")
+#load("~/Documents/CWA/nhlscrapr-master/game.events.16.RData")
 
 # Combine season data
 pbp.all <- plyr::rbind.fill(game.events.08,game.events.09,game.events.10,game.events.11,
@@ -89,6 +89,7 @@ shots.all <- pbp.all %>%
                                        ifelse(SA.Goalie == "EMMANUEL FERNANDEZ","MANNY FERNANDEZ",
                                        ifelse(SA.Goalie == "TIMOTHY JR. THOMAS","TIM THOMAS",
                                        ifelse(SA.Goalie == "SIMEON VARLAMOV","SEMYON VARLAMOV",
+                                       ifelse(SA.Goalie == "JAMES HOWARD","JIMMY HOWARD",
                                        ifelse(SA.Goalie == "JEFF DROUIN-DESLAURIERS","JEFF DESLAURIERS",
                                                      SA.Goalie))))))),
                     ENG = ifelse(ev.team == awayteam & nchar(home.G) == 0,1,
@@ -143,6 +144,7 @@ aggregate(goal ~ shot.type, data = shots.all, FUN = length)
 aggregate(distance ~ season, data = shots.all, FUN = mean)
 aggregate(goal ~ season, data = shots.all, FUN = length)
 aggregate(distance ~ SA.Goalie, data = shots.all, FUN = length)
+
 
 # Check even distribution
 sum(shots.all$even.second) / length(shots.all$even.second) #0.498641
@@ -294,6 +296,8 @@ predicted.goal.model <- lm.cv.10(shots.all,
                               c("season","gcode","period","seconds","ev.team","awayteam","hometeam","away.G","home.G",
                                 "even.second","SA.Goalie","time.index"))   
 
+prob.goal = shot.angle + distance + is.Rebound + shot.type + gamestate + regressed.shooting.skill.index
+
 # Summary best plot
 best.model.no <- predicted.goal.model[[2]] %>% filter(r.squared == max(r.squared)) %>% select(.id) %>% as.character()
 best.model <- predicted.goal.model[[1]]$model[[paste0(as.numeric(best.model.no))]] 
@@ -324,20 +328,21 @@ predicted.goal.model[[5]] %>%
                   avg.shot=mean(distance), avg.angle=mean(shot.angle), rebound=mean(as.numeric(is.Rebound)-1))
 
 # Output Predicted
+load("~/Documents/CWA/Hockey Data/xG.shots.all.RData")
 xG <- predict(best.model, predicted.goal.model[[5]], type='response')
 
 scored.data <- cbind(xG,predicted.goal.model[[5]][2:ncol(predicted.goal.model[[5]])])
 
 scored.data %>% 
   group_by(season) %>% 
-  summarise(xG=sum(xG), goals=sum(as.numeric(goal)-1), 
+  summarise(xG=sum(xG), goals=sum(as.numeric(goal)-1), xG.shot = xG / n(),
             avg.shot=mean(distance), avg.angle=mean(shot.angle), rebound=mean(as.numeric(is.Rebound)-1))
 
 ############################################################################################################################################################################
 ########2.B SAVE MODEL AND SCORED SHOTS
 ############################################################################################################################################################################
 save(scored.data, file="~/Documents/CWA/Hockey Data/xG.scored.data.RData")
-save(best.model, file="~/Documents/CWA/Hockey Data/xG.best.model.RData")
+#save(best.model, file="~/Documents/CWA/Hockey Data/xG.best.model.RData")
 
 ############################################################################################################################################################################
 ########3.A DEVELOP FUNCTIONS SELECT GOALIE-SEASON AND PLOT GOALIE XG SAVE SUCCESS
@@ -461,7 +466,6 @@ goalie.plot(c("CAREY PRICE","CAM TALBOT", "SERGEI BOBROVSKY", "COREY CRAWFORD","
             c("20142015", "20152016","20162017"))[[1]]
 
 
-
 goalie.plot(c("STEVE MASON"))[[1]]
 goalie.plot(c("STEVE MASON"),c("20122013","20132014","20142015","20152016","20162017"))[[1]]
 
@@ -472,4 +476,28 @@ goalie.plot(c("TUUKKA RASK","BRADEN HOLTBY"),c("20152016","20162017"))[[1]]
 goalie.plot(c("FREDERIK ANDERSEN","JONATHAN BERNIER","JAMES REIMER","KARRI RAMO","JHONAS ENROTH"),c("20152016","20162017"))[[1]]
 
 goalie.plot(c("HENRIK LUNDQVIST","STEVE MASON","CORY SCHNEIDER"),c("20122013","20132014","20142015","20152016","20162017"))[[1]]
-dat <- goalie.plot(c("HENRIK LUNDQVIST","STEVE MASON","CORY SCHNEIDER"),c("20122013","20132014","20142015","20152016","20162017"))[[2]]
+
+goalie.plot(c("DEVAN DUBNYK","CAREY PRICE","COREY CRAWFORD","BRADEN HOLTBY","SERGEI BOBROVSKY","JAROSLAV HALAK"),c("20152016","20162017"))[[1]]
+
+goalie.plot(c("CAREY PRICE","COREY CRAWFORD","CORY SCHNEIDER","JAROSLAV HALAK","CAM WARD","JONATHAN QUICK","MARC-ANDRE FLEURY",
+              "PEKKA RINNE","TUUKKA RASK","HENRIK LUNDQVIST","ROBERTO LUONGO","RYAN MILLER","STEVE MASON"))[[1]]
+
+goalie.plot(c("CAREY PRICE","COREY CRAWFORD","CORY SCHNEIDER","JAROSLAV HALAK","CAM WARD","JONATHAN QUICK","MARC-ANDRE FLEURY",
+              "PEKKA RINNE","TUUKKA RASK","HENRIK LUNDQVIST","ROBERTO LUONGO","RYAN MILLER","STEVE MASON"),
+            c("20142015","20152016","20162017"))[[1]]
+
+goalie.plot(c("ANDREW HAMMOND","MIKE CONDON","CRAIG ANDERSON"),c("20142015","20152016","20162017"))[[1]]
+
+goalie.plot(c("BRIAN ELLIOTT","CHAD JOHNSON","JONAS HILLER","KARRI RAMO"),c("20142015","20152016","20162017"))[[1]]
+
+goalie.plot(c("JONAS GUSTAVSSON","CAM TALBOT","LAURENT BROSSOIT","ANDERS NILSSON"),c("20142015","20152016","20162017"))[[1]]
+
+goalie.plot(c("MIIKKA KIPRUSOFF"))[[1]]
+
+goalie.plot(c("HENRIK LUNDQVIST","ANTTI RAANTA"),c("20142015","20152016","20162017"))[[1]]
+
+goalie.plot(c("TUUKKA RASK","JONAS GUSTAVSSON","ANTON KHUDOBIN","MALCOLM SUBBAN","CHAD JOHNSON","ZANE MCINTYRE",
+              "NIKLAS SVEDBERG"),c("20132014","20142015","20152016","20162017"))[[1]]
+
+goalie.plot(c("MIKE SMITH","LOUIS DOMINGUE"),c("20152016","20162017"))[[1]]
+
