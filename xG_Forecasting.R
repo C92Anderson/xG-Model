@@ -69,6 +69,13 @@ goalie.season <- goalie.shots %>%
   left_join(goalie.game, by=c("SA.Goalie","season")) %>%
   filter(season.Shots > 100) 
 
+# Plot shot difficulty
+goalie.season %>%
+  filter(season == "20162017" & season.Shots > 300) %>%
+  arrange(desc(xG.shot)) %>%
+  ggplot() +
+  geom_bar(aes(x=SA.Goalie, y=xG.shot)) +
+  coord_flip()
 ############################################################################################################################################################################
 ######## 1.B PLOT GOALIE SEASON
 ############################################################################################################################################################################
@@ -286,9 +293,174 @@ best.model %>% summary()
 1 - (best.model$deviance / best.model$null.deviance)
 # 0.267
 
-
 lm.scored.data <- predicted.season.model[[3]] %>% 
   group_by(season) %>% 
   summarise(xG=sum(xG), goals=sum(as.numeric(goal)-1), 
             avg.shot=mean(distance), avg.angle=mean(shot.angle), rebound=mean(as.numeric(is.Rebound)-1))
+
+############################################################################################################################################################################
+######## 2.D X GAME LOOP
+############# Maximize predictiveness in x game chunks 
+############################################################################################################################################################################
+
+# Load scored data
+load("~/Documents/CWA/Hockey Data/xG.scored.data.RData")
+load(url("http://war-on-ice.com/data/nhlscrapr-core.RData"))
+
+# Prepare all shots against goaltenders in shot sample
+all.lookback.shots <- roster.master %>%
+          filter(nchar(DOB) > 0) %>%
+          mutate(SA.Goalie = toupper(firstlast)) %>%
+          select(SA.Goalie, Height, DOB, last) %>%
+          distinct(SA.Goalie, Height, DOB, last) %>%
+          right_join(scored.data, by="SA.Goalie") %>%
+          mutate(Game.ID = as.character(gcode),
+                 DOB=as.Date(DOB),
+                 season.date = paste0(season, refdate),
+                 SA = 1,
+                 GA = as.numeric(goal)-1) %>%
+          select(SA.Goalie, season, Game.ID, seconds, goal, xG, SA, GA, even.second, season.date, Height, DOB, last) %>%
+          arrange(desc(season), desc(Game.ID), desc(seconds)) %>%
+          group_by(SA.Goalie) %>%
+          mutate(cum.lookback.shots = cumsum(SA),
+                 career.shots = max(cum.lookback.shots),
+                 Height = (as.integer(substr(Height,1,1)) * 12) + as.integer(substr(Height,3,4)))
+
+# Shot chunks to iterate over
+shot.lookback <- c(seq(250, 5000, by=250))
+
+# Prepare dataframe
+chunk.correlations.df <- data.frame(Shot.Chunk.Iteration=as.integer(), 
+                                    Correlation=as.numeric(),
+                                    Sample=as.numeric())
+
+chunk.glm.df <- data.frame(Shot.Chunk.Iteration=as.integer(), 
+                           Fold=as.integer(),
+                           SST=as.numeric(),
+                           SSE=as.numeric(),
+                           R.Squared=as.numeric(),
+                           Sample = as.numeric())
+
+chunk.rf.df <- data.frame(Shot.Chunk.Iteration=as.integer(), 
+                          mtry=as.integer(),
+                          RMSE=as.numeric(),
+                          Rsquared=as.numeric(),
+                          RMSESD=as.numeric(),
+                          RsquaredSD=as.numeric())
+
+chunk.predictions <- list()
+
+for(i in shot.lookback) {
+ 
+  goalie.chunks <- all.lookback.shots %>%
+          mutate(goalie.chunks = floor(career.shots / i),
+                 shot.chunk = floor(cum.lookback.shots / i) + 1) %>%
+          filter(goalie.chunks >= 2 & shot.chunk <= goalie.chunks) %>%
+          group_by(SA.Goalie,Height,shot.chunk) %>%
+          summarise(career.shots = min(career.shots),
+                    chunk.xG = sum(xG),
+                    chunk.Goals = sum(GA),
+                    chunk.Shots = sum(SA),
+                    #chunk.Shots.Game = sum(SA) / count(unique(Game.ID)),
+                    chunk.last.date = substr(max(season.date),9,12),
+                    chunk.last.date = as.Date(as.integer(chunk.last.date), origin="2002-01-01"),
+                    chunk.age.end = (as.integer(chunk.last.date) - as.integer(min(DOB))) / 365.25) %>%
+          mutate(chunk.xGS.100 = (chunk.xG - chunk.Goals) / (chunk.Shots / 100)) %>%
+          group_by(SA.Goalie) %>%
+          mutate(future.chunk.xGS.100 = lag(chunk.xGS.100)) %>%
+          filter(!is.na(future.chunk.xGS.100)) 
+  
+  # Check simple correlation
+  chunk.corr <- cor(goalie.chunks$future.chunk.xGS.100, goalie.chunks$chunk.xGS.100)
+  chunk.corr <- data.frame(Shot.Chunk.Iteration = i, Correlation = chunk.corr, Sample=nrow(goalie.chunks))
+  chunk.correlations.df <- rbind(chunk.correlations.df, chunk.corr)
+  
+  # Random Forest 
+  train_control <- trainControl(method="cv", number=3)
+  
+  # train the model
+  rf.model <- train(future.chunk.xGS.100 ~ chunk.xGS.100 + chunk.age.end,
+                    data=goalie.chunks, trControl=train_control, method="rf", tuneLength=6, ntree=500, importance=TRUE)
+  
+  #rf.pred <- predict(rf.model, newdata=goalie.chunks)
+  rf.results <- cbind(i, rf.model$results)
+
+  chunk.rf.df <- rbind(chunk.rf.df, rf.results)
+
+  # Cross-validation loop
+  # Set folds
+  set.seed(1234)  
+  folds <- crossv_kfold(goalie.chunks, k = 5)
+  
+  # Run model over folds
+  model.folds <- folds %>% 
+    mutate(model = map(train, ~ glm(future.chunk.xGS.100 ~ chunk.xGS.100 + chunk.age.end, data = .)))
+  
+  # Predict test data
+  predicted <- model.folds %>% 
+    mutate(predicted = map2(model, test, ~ augment(.x, newdata = .y))) %>% 
+    unnest(predicted)
+  
+  #Calculate residual
+  predicted <- predicted %>% 
+    mutate(residual = .fitted - future.chunk.xGS.100,
+           ci.high = .fitted + (1.96 * .se.fit),
+           ci.low = .fitted - (1.96 * .se.fit))
+  
+  chunk.predictions[[i]] <- predicted
+  
+  # Calculate r-squared
+  rs <- predicted %>%
+#    group_by(.id) %>% 
+    summarise(
+      sst = sum((future.chunk.xGS.100 - mean(future.chunk.xGS.100)) ^ 2), # Sum of Squares Total
+      sse = sum(residual ^ 2),          # Sum of Squares Residual/Error
+      r.squared = 1 - sse / sst,         # Proportion of variance accounted for
+      sample = nrow(predicted)
+    )
+
+
+  best.model.no <- rs %>% filter(r.squared == max(r.squared)) %>% select(.id) %>% as.character()
+  best.model <- model.folds$model[[paste0(as.numeric(best.model.no))]] 
+
+  best.model.pred <- predict(best.model, all.lookback.shots)
+#  best.model.data <- cbind(best.model.pred, as.data.frame(goalie.chunks))
+#  best.model.rs <- best.model.data %>%
+#        mutate(residual = best.model.pred - future.chunk.xGS.100) %>%
+#        summarise(sst = sum((future.chunk.xGS.100 - mean(future.chunk.xGS.100)) ^ 2), # Sum of Squares Total
+#                  sse = sum(residual ^ 2),          # Sum of Squares Residual/Error
+#                  r.squared = 1 - sse / sst,
+#                  sample = max(rs$sample))
+  
+  chunk.glm <- cbind(i, rs)
+  chunk.glm.df <- rbind(chunk.glm.df, chunk.glm)
+  
+}
+
+# Slice Correlations
+chunk.correlations.df %>%
+    ggplot() +
+    geom_point(aes(x=Shot.Chunk.Iteration, y=Correlation, size=Sample)) +
+    ylim(0,0.75) +
+  labs(size="Number of Slice-Pairs") +
+  labs(title="Shot Slices Pair Correlations\nSlice,i to Slice,i-1") +
+  labs(x="Shot Slice Size", y="Correlation") +
+  annotate("text", x = 100, y = 0.6, hjust=0, label = "@CrowdScoutSprts\nxG Model built using nhlscrapr\ngithub.com/C92Anderson/xG-Model") +
+  theme(panel.background = element_blank())
+  
+# Plot Best Model R-Squared
+chunk.glm.df %>%
+  group_by(i) %>%
+  summarise(mean.r.squared = max(r.squared),
+            sample.size = max(sample)) %>%
+  ggplot() +
+  geom_point(aes(x=i, y=mean.r.squared, size=sample.size)) +
+  ylim(0,0.75) +
+  labs(size="Number of Slice-Pairs") +
+  labs(title="Shot Slices Pairs Linear Model - Save Percentage Best Model Only\nSlice,i Predicted by Age, Slice,i-1") +
+  labs(x="Shot Slice Size", y="Best Model R-Squared") +
+  geom_text_repel(aes(x=i,y=mean.r.squared,label = round(mean.r.squared,2))) +
+  annotate("text", x = 100, y = 0.6, hjust=0, label = "@CrowdScoutSprts\nxG Model built using nhlscrapr\ngithub.com/C92Anderson/xG-Model") +
+  theme(panel.background = element_blank())
+
 
