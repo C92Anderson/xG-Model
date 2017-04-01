@@ -64,18 +64,31 @@ goalie.season <- goalie.shots %>%
             season.Goals = sum(GA),
             season.Shots = sum(SA)) %>%
   mutate(season.xGS.100 = (season.xG - season.Goals) / (season.Shots / 100),
-         xG.shot = season.xG / season.Shots) %>%
+         xG.shot = season.xG / season.Shots,
+         G.shot = season.Goals / season.Shots) %>%
   left_join(goalie.career.TD, by=c("SA.Goalie","season")) %>%
   left_join(goalie.game, by=c("SA.Goalie","season")) %>%
   filter(season.Shots > 100) 
 
 # Plot shot difficulty
 goalie.season %>%
-  filter(season == "20162017" & season.Shots > 300) %>%
+  filter(season == "20162017" & (season.Shots > 1000)) %>%
   arrange(desc(xG.shot)) %>%
   ggplot() +
-  geom_bar(aes(x=SA.Goalie, y=xG.shot)) +
-  coord_flip()
+  geom_segment(aes(x = reorder(SA.Goalie,-xG.shot), 
+                   y = xG.shot, xend = reorder(SA.Goalie,-xG.shot), yend = G.shot, colour = (xG.shot - G.shot)),size=2) +
+  scale_color_gradient2(low="firebrick2",mid="grey50",high="forestgreen") +
+  geom_point(aes(x=reorder(SA.Goalie,-xG.shot), y=xG.shot, size = season.Shots), show.legend=TRUE, stat="identity", color="grey50") +
+  geom_point(aes(x=reorder(SA.Goalie,-xG.shot), y=G.shot, size = season.Shots), stat="identity", color="slateblue4") +
+  scale_y_continuous(labels = scales::percent) +
+   coord_flip() +
+  theme(panel.background = element_blank(), 
+        panel.grid.major.y = element_line(colour = "light grey", size = 0.1)) +
+  labs(title=paste0("Goaltending Performance (QREAM*) 2016-17 - *Quality Rules Everything Around Me\nSorted by Mean xG per Shot Faced (Minimum 1000 shots)"),
+       x="Goalie", y="(Expected) Goals per Shot", color="QREAM per Shot", size = "Season Shots") +
+  annotate("text", x = 6, y = (min(goalie.season$xG.shot) - 0.01), hjust=0, 
+           label = "Grey bubble: xG / Shot\nDark bubble: Actual GA / Shot\n@CrowdScoutSprts\nxG Model built using nhlscrapr\ngithub.com/C92Anderson/xG-Model")
+
 ############################################################################################################################################################################
 ######## 1.B PLOT GOALIE SEASON
 ############################################################################################################################################################################
@@ -172,7 +185,7 @@ goalie.season.splits %>%
         annotate("segment", x = -5, y = -5, xend = 5, yend = 5) +
         annotate("text", x = -4, y = 4, hjust = 0, label = paste0("Intra-season correlation: ", round(SOX.corr,2))) +
         labs(title="Intra-Season Correlation - Expected Goals Against - Actual Goals Against per 100 Shots\n@CrowdScoutSprts - github.com/C92Anderson/xG-Model") +
-        labs(x="Even Second Saves Over Expected (SOX)",y="Odd Second Saves Over Expected (SOX)",size="Shots Against") +
+        labs(x="Even Second QREAM / 100 Shots",y="Odd Second QREAM / 100 Shots",size="Shots Against") +
         theme(panel.background = element_blank()) 
 
 # Plot Save Percentage
