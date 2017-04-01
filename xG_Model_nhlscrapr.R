@@ -20,13 +20,30 @@
 ######## 0.A SYSTEM PREP
 ############################################################################################################################################################################
 library(ggplot2);library(dplyr); library(DataCombine)
-library(glmnet); library(nhlscrapr); library(caret); library(RMySQL)
+library(glmnet); library(nhlscrapr); library(caret); library(RMySQL); library(readr)
 
 ### Load Gaolie/Skater Roster with Handedness
-mysql.conn = dbConnect(MySQL(), user='ca_elo_games', password='cprice31!', dbname='nhl_all', host='mysql.crowdscoutsports.com')
-skater.roster = fetch(dbSendQuery(mysql.conn, "select distinct playerId, upper(playerName) as Player,  upper(playerLastName) as playerLastName, playerPositionCode as `Player.Position`, playerShootsCatches as Shoots, playerBirthDate as shooterDOB from hockey_skaters_roster"), n=-1)
+skater.roster <- read_csv("https://raw.githubusercontent.com/C92Anderson/xG-Model/master/hockey_skaters_roster.csv") %>% 
+                  mutate(shooterID = playerId,
+                          Player = toupper(playerName),
+                         `Player.Position` = playerPositionCode,
+                         Shoots = playerShootsCatches,
+                         shooterDOB = playerBirthDate) %>%
+                  select(shooterID, Player, Player.Position, Shoots, shooterDOB) %>%
+                  filter(!shooterID %in% c(8474744,8466208,8471747,8468436,8466155,8476979,8471221)) %>%
+                  unique()
 
-goalie.roster = fetch(dbSendQuery(mysql.conn, "select distinct playerId, upper(playerName) as `SA.Goalie`, playerHeight as goalieHeight, playerShootsCatches as Catches, playerBirthDate as goalieDOB from hockey_goalies_roster"), n=-1)
+goalie.roster <- read_csv("https://raw.githubusercontent.com/C92Anderson/xG-Model/master/hockey_goalies_roster.csv") %>% 
+          mutate(goalieID = playerId,
+                 SA.Goalie = toupper(playerName),
+                 goalieHeight = playerHeight,
+                 Catches = playerShootsCatches,
+                 goalieDOB = playerBirthDate) %>%
+          select(goalieID, SA.Goalie, goalieHeight, Catches, goalieDOB) %>%
+          unique()
+
+skater.name.xwalk <- read_csv("https://raw.githubusercontent.com/C92Anderson/xG-Model/master/skater_name_xwalk.csv")
+
 
 # Multiple plot function
 #
@@ -144,20 +161,14 @@ save(pbp.all,"~/Documents/CWA/Hockey Data/pbp.all.RData")
 # Create shots dataset
 shots.all <- pbp.all %>%
              filter(etype %in% c("SHOT","GOAL","MISS") & period %in% c(1:4)) %>% 
-             mutate(Player = toupper(trimws(substr(ev.player.1, 3, nchar(ev.player.1)))),
-                    Player = ifelse(Player == "ALEX OVECHKIN","ALEXANDER OVECHKIN",
-                                            Player)
-                    ) %>%
-                     left_join(skater.roster, by = c("Player" = "Player")) %>% filter(is.na(Shoots)) %>% 
-  group_by(Player, Shoots, Player.Position) %>% summarise(cnt = n())
-  select(Player, Shoots, Player.Position) %>% unique()
-
-
-
-  mutate(SA.Goalie = ifelse(ev.team == hometeam, 
+             mutate(Player = toupper(trimws(substr(ev.player.1, 3, nchar(ev.player.1))))) %>%
+             left_join(skater.name.xwalk, by = c("Player" = "Player1")) %>%
+             mutate(Player = ifelse(!is.na(Player_clean),Player_clean,Player)) %>%
+             left_join(skater.roster, by = c("Player" = "Player")) %>% 
+             mutate(SA.Goalie = ifelse(ev.team == hometeam, 
                             trimws(substr(away.G, 3, nchar(away.G))),
                             trimws(substr(home.G, 3, nchar(home.G)))),
-         SA.Goalie = ifelse(SA.Goalie == "ILJA BRYZGALOV","ILYA BRYZGALOV",
+                    SA.Goalie = ifelse(SA.Goalie == "ILJA BRYZGALOV","ILYA BRYZGALOV",
                                        ifelse(SA.Goalie == "ALEXANDER AULD","ALEX AULD",
                                        ifelse(SA.Goalie == "EMMANUEL LEGACE","MANNY LEGACE",
                                        ifelse(SA.Goalie == "EMMANUEL FERNANDEZ","MANNY FERNANDEZ",
@@ -187,54 +198,16 @@ shots.all <- pbp.all %>%
                                       ifelse(gamestate %in% c("6v3","6v4","5v3"),"PP.2p.SA",
                                       ifelse(gamestate %in% c("5v5","6v6"),"5v5",
                                               gamestate))),
-                    home.shooter = ifelse(ev.team == awayteam, 0, 1),
-                    zone.shot = ifelse(home.shooter == 0 & homezone == "Def", "Off",
-                                       ifelse(home.shooter == 0 & homezone == "Off", "Def",
-                                              ifelse(home.shooter == 1 & homezone == "Off", "Off",
-                                                     ifelse(home.shooter == 1 & homezone == "Def", "Def",
-                                                            "Neu")))),
-                    last.zone = ifelse(home.shooter == 0 & lag.home.zone == "Def", "Off",
-                                       ifelse(home.shooter == 0 & lag.home.zone == "Off", "Def",
-                                              ifelse(home.shooter == 1 & lag.home.zone == "Off", "Off",
-                                                     ifelse(home.shooter == 1 & lag.home.zone == "Def", "Def",
-                                                            "Neu")))),
                     shot.type = droplevels(as.factor(ifelse(type %in% c("Deflected","Tip-In"), "Deflected",
-                                          ifelse(type %in% c("Wrist","Snap","Unspecified"),"Wrist",
-                                                 as.character(type))))),
-                    
+                                                     ifelse(type %in% c("Wrist","Snap","Unspecified"),"Wrist",
+                                                            as.character(type))))),
+             
                     last.event.time = seconds - lag.seconds,
-                    
-                    # Last Event
-                    last.off.faceoff = ifelse(last.zone == "Off" & lag.event == "FAC", 1, 0),
-                    last.def.faceoff = ifelse(last.zone == "Def" & lag.event == "FAC", 1, 0),
-                    last.neu.faceoff = ifelse(last.zone == "Neu" & lag.event == "FAC", 1, 0),
-                    last.off.shot = ifelse(last.zone == "Off" & lag.event %in% c("SHOT","BLOCK","MISS"), 1, 0),
-                    last.def.shot = ifelse(last.zone == "Def" & lag.event %in% c("SHOT","BLOCK","MISS"), 1, 0),
-                    last.neu.shot = ifelse(last.zone == "Neu" & lag.event %in% c("SHOT","BLOCK","MISS"), 1, 0),
-                    last.off.give = ifelse(last.zone == "Off" & lag.event %in% c("TAKE","GIVE"), 1, 0),
-                    last.def.give = ifelse(last.zone == "Def" & lag.event %in% c("TAKE","GIVE"), 1, 0),
-                    last.neu.give = ifelse(last.zone == "Neu" & lag.event %in% c("TAKE","GIVE"), 1, 0),
-
-                    # Time from Last Event
-                    time.last.off.faceoff = last.off.faceoff * last.event.time,
-                    time.last.def.faceoff = last.def.faceoff * last.event.time,
-                    time.last.neu.faceoff = last.neu.faceoff * last.event.time,
-                    time.last.off.shot = last.off.shot * last.event.time,
-                    time.last.def.shot = last.def.shot * last.event.time,
-                    time.last.neu.shot = last.neu.shot * last.event.time,
-                    time.last.off.give = last.off.give * last.event.time,
-                    time.last.def.give = last.def.give * last.event.time,
-                    time.last.neu.give = last.neu.give * last.event.time,
-
+             
+                    home.shooter = ifelse(ev.team == awayteam, 0, 1),
+             
                     is.Rebound = as.factor(ifelse(lag.event == "SHOT" & ((seconds - lag.seconds) <= 2),1,0)),
-                    is.Rush = as.factor(ifelse(((seconds - lag.seconds) <= 4) & zone.shot != last.zone,1,0))) %>%
-  
 
-            mutate(Player.Position = ifelse(substr(pos.y,1,1) == "D","D",
-                                     ifelse(substr(pos.y,1,1) == "C","C",
-                                     ifelse(substr(pos.y,1,1) == "L","L",
-                                     ifelse(substr(pos.y,1,1) == "R","R",
-                                     ifelse(is.na(pos.y) == TRUE,"U","U"))))),
                    Shooter.Handedness = ifelse(Shoots == "L","L",
                                         ifelse(Shoots == "R","R",
                                         ifelse(is.na(Shoots),"U","U"))),
@@ -409,7 +382,41 @@ shots.all2 <- slide(shots.all2, Var = "shot.angle", NewVar = "int.shot.angle", s
 shots.all2 <- slide(shots.all2, Var = "LS.shot", NewVar = "int.LS.shot", slideBy = -1)
 
 shots.all2 <- shots.all2 %>%
-  mutate(Rebound.Angle.Change = ifelse(is.Rebound == 0, 0, 
+  mutate(       zone.shot = ifelse(home.shooter == 0 & homezone == "Def", "Off",
+                                   ifelse(home.shooter == 0 & homezone == "Off", "Def",
+                                          ifelse(home.shooter == 1 & homezone == "Off", "Off",
+                                                 ifelse(home.shooter == 1 & homezone == "Def", "Def",
+                                                        "Neu")))),
+                last.zone = ifelse(home.shooter == 0 & lag.home.zone == "Def", "Off",
+                                   ifelse(home.shooter == 0 & lag.home.zone == "Off", "Def",
+                                          ifelse(home.shooter == 1 & lag.home.zone == "Off", "Off",
+                                                 ifelse(home.shooter == 1 & lag.home.zone == "Def", "Def",
+                                                        "Neu")))),
+                is.Rush = as.factor(ifelse(((seconds - lag.seconds) <= 4) & zone.shot != last.zone,1,0)),
+                
+                # Last Event
+                last.off.faceoff = ifelse(last.zone == "Off" & lag.event == "FAC", 1, 0),
+                last.def.faceoff = ifelse(last.zone == "Def" & lag.event == "FAC", 1, 0),
+                last.neu.faceoff = ifelse(last.zone == "Neu" & lag.event == "FAC", 1, 0),
+                last.off.shot = ifelse(last.zone == "Off" & lag.event %in% c("SHOT","BLOCK","MISS"), 1, 0),
+                last.def.shot = ifelse(last.zone == "Def" & lag.event %in% c("SHOT","BLOCK","MISS"), 1, 0),
+                last.neu.shot = ifelse(last.zone == "Neu" & lag.event %in% c("SHOT","BLOCK","MISS"), 1, 0),
+                last.off.give = ifelse(last.zone == "Off" & lag.event %in% c("TAKE","GIVE"), 1, 0),
+                last.def.give = ifelse(last.zone == "Def" & lag.event %in% c("TAKE","GIVE"), 1, 0),
+                last.neu.give = ifelse(last.zone == "Neu" & lag.event %in% c("TAKE","GIVE"), 1, 0),
+                
+                # Time from Last Event
+                time.last.off.faceoff = last.off.faceoff * last.event.time,
+                time.last.def.faceoff = last.def.faceoff * last.event.time,
+                time.last.neu.faceoff = last.neu.faceoff * last.event.time,
+                time.last.off.shot = last.off.shot * last.event.time,
+                time.last.def.shot = last.def.shot * last.event.time,
+                time.last.neu.shot = last.neu.shot * last.event.time,
+                time.last.off.give = last.off.give * last.event.time,
+                time.last.def.give = last.def.give * last.event.time,
+                time.last.neu.give = last.neu.give * last.event.time,
+                
+                Rebound.Angle.Change = ifelse(is.Rebound == 0, 0, 
                                        ifelse(LS.shot == int.LS.shot, abs(shot.angle - int.shot.angle),
                                               ifelse(LS.shot != int.LS.shot, 180 - shot.angle - int.shot.angle, 0))),
          Rebound.Second.Change = ifelse(is.Rebound == 0, 0, seconds - lag.seconds),
