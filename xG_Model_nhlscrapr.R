@@ -158,10 +158,15 @@ save(pbp.all,"~/Documents/CWA/Hockey Data/pbp.all.RData")
 ########1.B LIMIT TO SHOTS AGAINST AND DEVELOP FEATURES
 ############################################################################################################################################################################
 
-# Create shots dataset
+# Create shots dataset  1,034,072  -> 1,029,769  #### Drop misses, no x,y coordinates
 shots.all <- pbp.all %>%
-             filter(etype %in% c("SHOT","GOAL","MISS") & period %in% c(1:4)) %>% 
-             mutate(Player = toupper(trimws(substr(ev.player.1, 3, nchar(ev.player.1))))) %>%
+             mutate(Player = toupper(trimws(substr(ev.player.1, 3, nchar(ev.player.1)))),
+                    time.index = paste0(as.character(gcode),seconds),
+                    even.second = ifelse(as.numeric(seconds) %% 2 == 0,1,0),
+                    
+                    last.event.time = seconds - lag.seconds) %>%
+             
+             filter(etype %in% c("SHOT","GOAL") & period %in% c(1:4)) %>%
              left_join(skater.name.xwalk, by = c("Player" = "Player1")) %>%
              mutate(Player = ifelse(!is.na(Player_clean),Player_clean,Player)) %>%
              left_join(skater.roster, by = c("Player" = "Player")) %>% 
@@ -181,8 +186,7 @@ shots.all <- pbp.all %>%
                           ifelse(ev.team == hometeam & nchar(away.G) == 0,1,
                                         0)),
                     goal = as.factor(ifelse(etype =="GOAL",1,0)),
-                    time.index = paste0(as.character(gcode),seconds),
-                    even.second = ifelse(as.numeric(seconds) %% 2 == 0,1,0),
+                    
                     awaystate = ifelse(nchar(a4) == 0, 3,
                                        ifelse(nchar(a5) == 0, 4,
                                            ifelse(nchar(a6) == 0, 5,
@@ -202,8 +206,6 @@ shots.all <- pbp.all %>%
                                                      ifelse(type %in% c("Wrist","Snap","Unspecified"),"Wrist",
                                                             as.character(type))))),
              
-                    last.event.time = seconds - lag.seconds,
-             
                     home.shooter = ifelse(ev.team == awayteam, 0, 1),
              
                     is.Rebound = as.factor(ifelse(lag.event == "SHOT" & ((seconds - lag.seconds) <= 2),1,0)),
@@ -213,132 +215,96 @@ shots.all <- pbp.all %>%
                                         ifelse(is.na(Shoots),"U","U"))),
                    Player.Position = ifelse(!is.na(Player.Position), Player.Position, "U"),
                    Shooter.Handedness = ifelse(!is.na(Shooter.Handedness), Shooter.Handedness, "U")) %>%
-            filter(ENG == 0) 
+          left_join(goalie.roster, by="SA.Goalie") %>%
+          mutate(Catches = ifelse(is.na(Catches) | Catches == "NULL","L",Catches),
+                    Handed.Class = ifelse(Shooter.Handedness == "L" & Catches == "L", "LL",
+                                         ifelse(Shooter.Handedness == "L" & Catches == "R", "LR",
+                                                ifelse(Shooter.Handedness == "R" & Catches == "L", "RL",
+                                                       ifelse(Shooter.Handedness == "R" & Catches == "R", "RR",
+                                                              "U")))),
+                   Handed.Class2 = ifelse(Handed.Class %in% c("LL","RR"),"Same",
+                                          ifelse(Handed.Class %in% c("LR","RL"),"Opposite",
+                                                 "U")),
+                   Player.Position2 = ifelse(Player.Position == "D", "D", 
+                                             ifelse(Player.Position %in% c("C","L","R","F"),"F",
+                                                    "U"))) %>%
+        filter(ENG == 0) %>%
+  
 
 shots.all$shot.type <- droplevels(shots.all$shot.type)
 
-shots.all1 <- goalie.roster %>%
-            unique() %>%
-            right_join(shots.all, by="SA.Goalie") %>%
-            mutate(Catches = ifelse(is.na(Catches),"L",Catches),
-                   Handed.Class = ifelse(Shooter.Handedness == "L" & Catches == "L", "LL",
-                            ifelse(Shooter.Handedness == "L" & Catches == "R", "LR",
-                            ifelse(Shooter.Handedness == "R" & Catches == "L", "RL",
-                            ifelse(Shooter.Handedness == "R" & Catches == "R", "RR",
-                                            "U")))),
-                   Handed.Class2 = ifelse(Handed.Class %in% c("LL","RR"),"Same",
-                                   ifelse(Handed.Class %in% c("LR","RL"),"Opposite",
-                                          "Unknown")),
-                  Player.Position2 = ifelse(Player.Position == "D", "D", 
-                                     ifelse(Player.Position %in% c("C","L","R","F"),"F",
-                                            "Unknown")))
-                                   
+shots.all %>%  filter(Player.Position == "U") %>% group_by(Player, Player.Position) %>% count(cnt = n()) %>% arrange(-cnt)
 
-# Summarize most popular xcoord by game
-xbypg <- aggregate(xcoord ~ home.shooter + period + gcode + hometeam + season, data=shots.all, FUN=mean)
 
-# Summarize to period level
-xbygame <- reshape(xbypg, idvar = c("gcode","season","hometeam","period"), timevar = "home.shooter", direction = "wide")
-
-# Reshape xcoord east facing and merge to master data
-shots.all1 <- xbygame %>%
-  filter(period %in% c(1,2,3)) %>%
-  mutate(home.align.east = ifelse(xcoord.1 > xcoord.0 & period %in% c(1,3), 1,
-                                  ifelse(xcoord.0 > xcoord.1 & period %in% c(2,4), 1,
-                                         ifelse(xcoord.0 > xcoord.1 & period %in% c(1,3), 0,
-                                                ifelse(xcoord.0 < xcoord.1 & period %in% c(2,4), 0, NA))))) %>%
-  filter(!is.na(home.align.east)) %>%
-  group_by(season, gcode, hometeam) %>%
-  summarise(home.align.east = mean(home.align.east)) %>%
-  filter(home.align.east == 0 || home.align.east == 1) %>%
-  merge(shots.all, by=c("season","gcode","hometeam")) %>%
-  mutate(XC = ifelse(home.align.east == 1 & home.shooter == 1 & period %in% c(1,3), xcoord,
-                     ifelse(home.align.east == 1 & home.shooter == 1 & period %in% c(2), -1 * xcoord,
-                            ifelse(home.align.east == 0 & home.shooter == 1 & period %in% c(1,3), -1 * xcoord,
-                                   ifelse(home.align.east == 0 & home.shooter == 1 & period %in% c(2), xcoord,
-                                          ifelse(home.align.east == 1 & home.shooter == 0 & period %in% c(1,3), -1 * xcoord,
-                                                 ifelse(home.align.east == 1 & home.shooter == 0 & period %in% c(2), xcoord,
-                                                        ifelse(home.align.east == 0 & home.shooter == 0 & period %in% c(1,3), xcoord,
-                                                               ifelse(home.align.east == 0 & home.shooter == 0 & period %in% c(2), -1 * xcoord,
-                                                                      abs(xcoord))))))))),
-         YC = ifelse(home.align.east == 1 & home.shooter == 1 & period %in% c(1,3), ycoord,
-                     ifelse(home.align.east == 1 & home.shooter == 1 & period %in% c(2), -1 * ycoord,
-                            ifelse(home.align.east == 0 & home.shooter == 1 & period %in% c(1,3), -1 * ycoord,
-                                   ifelse(home.align.east == 0 & home.shooter == 1 & period %in% c(2), ycoord,
-                                          ifelse(home.align.east == 1 & home.shooter == 0 & period %in% c(1,3), -1 * ycoord,
-                                                 ifelse(home.align.east == 1 & home.shooter == 0 & period %in% c(2), ycoord,
-                                                        ifelse(home.align.east == 0 & home.shooter == 0 & period %in% c(1,3), ycoord,
-                                                               ifelse(home.align.east == 0 & home.shooter == 0 & period %in% c(2), -1 * ycoord,
-                                                                      abs(ycoord))))))))),
-         LS.shot = ifelse(YC < 0, 1, 0)) %>%
-  filter(!is.na(XC) & !is.na(YC) & !is.na(distance))
-
-aggregate(xcoord ~ home.shooter + period, data=shots.all1, FUN=median)
-aggregate(XC ~ home.shooter + period, data=shots.all1, FUN=median)
-
-# Shot Distance and Shot Angle Function
-coord.calculator <- function(x,y, dist, thresh = 5) {
+### Deal with NHL PBP coordinates, see: http://hockeyanalytics.com/Research_files/SQ-RS0910-Krzywicki.pdf                                   
+shots.all.coords <- shots.all %>%
+            filter(xcoord != "NA") %>%
+            group_by(season, gcode, period, hometeam, home.shooter) %>%
+            summarise(avg_xcoord = mean(xcoord),
+                      sample = n()) %>%
+            mutate(standardized.xcoord = ifelse(period %in% c(2,4) , avg_xcoord * -1, avg_xcoord)) %>%
+            group_by(season, gcode, hometeam, home.shooter) %>%
+            summarise(standardized.xcoord = weighted.mean(standardized.xcoord, w = sample)) %>%
+            dcast(season + gcode + hometeam ~ home.shooter, value.var = "standardized.xcoord") %>%
+            mutate(home.align.east = ifelse(`1` > `0`, 1, 0)) %>%
+            select(season, gcode, hometeam, home.align.east) %>%
+            
+            ### Home Alignment set, merge back on all shot data
+            right_join(shots.all, by=c("season","gcode","hometeam")) %>%
   
-  shot.dist = sqrt((89 - x)**2 + (y ** 2))
-  
-  # Shot distance pretty close
-  if (abs(dist - shot.dist) < thresh) {
-    # Assign shot angle based on proper coordinates
-    shot.angle = atan(abs(89 - x) / abs(0 - y)) * (180 / pi)
-    coord.check = "clean"
-  } else {
-    # Flip coordinates and test
-    x.flip = y
-    y.flip = x
-    shot.dist = sqrt((89 - x.flip)**2 + (y.flip ** 2))
-    
-    # Test new shot distance    
-    if (abs(dist - shot.dist) < thresh) {
-      
-      # Assign shot angle based on proper coordinates
-      shot.angle = atan(abs(89 - x.flip) / abs(0 - y.flip)) * (180 / pi)
-      y = y.flip
-      x = x.flip
-      coord.check = "x-y flip"
-    } else {
-      # Flip x-coord
-      x.direction.change = -1 * x
-      shot.dist = sqrt((89 - x.direction.change)**2 + (y.flip ** 2))
-      
-      # Test new shot distance
-      if (abs(dist - shot.dist) < thresh) {
-        shot.angle = atan(abs(89 - x.direction.change) / abs(0 - y.flip)) * (180 / pi)
-        x = x.direction.change
-        coord.check = "x flip"
-      } else {
-        shot.dist = dist
-        shot.angle = atan(abs(89 - x) / abs(0 - y)) * (180 / pi)
-        coord.check = "pbp dist"
-      } 
-    }
-  }
-  return(list(round(shot.dist,3), 
-              round(shot.angle,3),
-              coord.check,
-              dist
-              #round(x,2), 
-              #round(y,2), 
-  ))
-}
+            mutate(### Flip coords
+                   flip.coords = ifelse((home.align.east == 1 & home.shooter == 1 & period %in% c(2)) |
+                                        (home.align.east == 1 & home.shooter == 0 & period %in% c(1,3,4)) |
+                                        (home.align.east == 0 & home.shooter == 0 & period %in% c(2)) |
+                                        (home.align.east == 0 & home.shooter == 1 & period %in% c(1,3,4)), 1, 0),
+                  
+                   # Flag non ozone shots
+                   shot.outside.blueline = ifelse((home.shooter == 1 & homezone == "Off") || (home.shooter == 0 & homezone == "Def"), 0, 1),
+                   
+                   # Standardize coordinates
+                   XC = ifelse(flip.coords == 1, xcoord * -1, xcoord),
+                   YC = ifelse(flip.coords == 1, ycoord * -1, ycoord),
+                   
+                   # Original calculation
+                   shot.dist = sqrt((89 - XC)**2 + (YC ** 2)),
+                   shot.angle = atan(abs(89 - XC) / abs(0 - YC)) * (180 / pi),
+                   
+                   # Alternate calculation
+                   flip.x.coord = ifelse(abs(shot.dist - distance) > 10, 1, 0), 
+                   shot.dist = ifelse(flip.x.coord == 1, sqrt((89 + XC)**2 + (YC ** 2)), shot.dist),
+
+                   # Check update, default to NHL calculation
+                   nhl.distance.used = ifelse((abs(shot.dist - distance) > 5) | is.na(shot.dist), 1, 0),
+                   shot.dist = ifelse(nhl.distance.used == 1, distance, shot.dist),
+                   
+                   distance.bucket = round(shot.dist,0),
+                   
+                   # Flip y coord to determine left-hand side shot
+                   LS.shot = ifelse((flip.x.coord == 0 & YC < 0) | (flip.x.coord == 1 & YC > 0), 1, 0),
+                   LS.shot = ifelse(is.na(LS.shot),0, LS.shot),
+                   
+                   Off.Hand.Shot = ifelse((LS.shot == 1 & Shooter.Handedness == "R") | (LS.shot == 0 & Shooter.Handedness == "L"),1,0))
 
 
-shot.mat <- mapply(coord.calculator,shots.all1$XC, shots.all1$YC, shots.all1$distance)
-shot.df <- as.data.frame(t(shot.mat))
-colnames(shot.df) <- c("shot.dist","shot.angle","coord.origin","shot.dist.nhl")
-shot.df$shot.dist <- as.numeric(shot.df$shot.dist)
-shot.df$shot.angle <- as.numeric(shot.df$shot.angle)
-shot.df$shot.dist.nhl <- as.numeric(shot.df$shot.dist.nhl)
-shot.df$coord.origin <- as.character(shot.df$coord.origin)
+aggregate(xcoord ~ home.shooter + period, data=shots.all.coords, FUN=median)
+aggregate(XC ~ home.shooter + period, data=shots.all.coords, FUN=median)
+aggregate(shot.dist ~ period, data=shots.all.coords, FUN=mean)
 
+################################################
+## Impute shot distance
+################################################
 
-shots.all2 <- cbind(shots.all1, shot.df)
+shots.all2 <- shots.all.coords %>%
+            filter(!is.na(shot.angle)) %>% 
+            group_by(distance.bucket) %>%
+            summarise(imputed.shot.angle = mean(shot.angle)) %>%
+            right_join(shots.all.coords, by="distance.bucket") %>%
+            mutate(shot.angle = ifelse(is.na(shot.angle),imputed.shot.angle, shot.angle)) %>%
+            filter(!is.na(shot.dist))
 
-aggregate(shot.dist ~ period, data=shots.all2, FUN=mean)
+check.coords <- shots.all2 %>% select(season, gcode, Player, hometeam, awayteam, ev.team, period, home.align.east, home.shooter, homezone, season, etype,  home.score, xcoord, ycoord, XC, YC, distance
+                                            ,shot.angle,shot.dist,Off.Hand.Shot, LS.shot, Shooter.Handedness,homezone,
+                                            homezone,flip.x.coord, nhl.distance.used, distance.bucket) %>% tail(100000)
 
 
 ################################################
@@ -346,22 +312,69 @@ aggregate(shot.dist ~ period, data=shots.all2, FUN=mean)
 ################################################
 
 year.rink.dist.bias <- shots.all2 %>%
-              group_by(season, hometeam, home.shooter) %>%
-              summarise(mean.shotdist1 = mean(shot.dist),
-                        mean.shotdist2 = mean(shot.dist.nhl),
-                        shot.diff = mean(mean.shotdist1) - mean(mean.shotdist2),
-                        mean.shotdist = mean(mean(mean.shotdist1), mean(mean.shotdist2))) %>%
-              dcast(season + hometeam ~ home.shooter, value.var = "mean.shotdist")
+              group_by(season, ev.team, home.shooter) %>%
+              summarise(mean.shot.distance = mean(shot.dist)) %>%
+              dcast(season + ev.team ~ home.shooter, value.var = "mean.shot.distance") 
+
+
+check.team <- year.rink.dist.bias %>% filter(ev.team == "NYR" & season == "20082009") 
+
+check.team %>%
+    ggplot() +
+    geom_point(aes(x=cum.shot.share, y=`0`)) +
+                 geom_point(aes(x=cum.shot.share, y=`1`))
+
+
+home.closeness <- colMeans(year.rink.dist.bias[c("0","1")])[2] / colMeans(year.rink.dist.bias[c("0","1")])[1]
+
+year.rink.dist.bias <- year.rink.dist.bias %>%
+              mutate(rink.distance.inflator = (`0` * home.closeness) / `1`,
+                     hometeam = ev.team) %>%
+              select(season, hometeam, rink.distance.inflator)
+
+################################################
+## Adjust for Rink Shot Distance Bias (Second Method)
+################################################
+
 shot.dist.year <- shots.all2 %>%
             group_by(season) %>%
             summarise(mean.shotdist.year = mean(mean(shot.dist), mean(shot.dist.nhl)))
 
-year.rink.dist.bias <- shots.all2 %>%
+year.rink.dist.bias2 <- shots.all2 %>%
             group_by(season, hometeam) %>%
-            summarise(mean.shotdist.team = mean(mean(shot.dist), mean(shot.dist.nhl))) %>%
+            summarise(mean.shotdist.team = mean(shot.dist)) %>%
             left_join(shot.dist.year, by="season") %>%
             mutate(rink.year.distance.inflator = mean.shotdist.year / mean.shotdist.team)
            
+
+################################################
+## Adjust for Rink Shot Distance Bias (Third Method)
+################################################
+
+team.distance.vars <- shots.all2 %>% select(season, ev.team, home.shooter, shot.dist, distance.bucket)
+
+year.rink.dist.bias <- team.distance.vars %>%
+  group_by(season, ev.team, home.shooter) %>%
+  summarise(total.team.shots = n()) %>%
+  left_join(team.distance.vars, by = c("season","ev.team", "home.shooter")) %>%
+  arrange(season, ev.team, home.shooter, shot.dist) %>%
+  group_by(season, ev.team, home.shooter) %>%
+  mutate(SA = 1,
+          cum.shot.share = round(cumsum(SA) / total.team.shots,2)) %>%
+  group_by(season, ev.team, home.shooter, cum.shot.share) %>%
+  summarise(shot.dist = mean(shot.dist)) %>%
+  dcast(season + ev.team + cum.shot.share ~ home.shooter, value.var="shot.dist")
+
+
+  dcast(season + ev.team ~ home.shooter, value.var = "mean.shot.distance") 
+
+
+year.rink.dist.bias2 <- shots.all2 %>%
+  group_by(season, hometeam) %>%
+  summarise(mean.shotdist.team = mean(shot.dist)) %>%
+  left_join(shot.dist.year, by="season") %>%
+  mutate(rink.year.distance.inflator = mean.shotdist.year / mean.shotdist.team)
+
 ################################################
 # Slide last shot coordinates
 ################################################
@@ -369,20 +382,13 @@ year.rink.dist.bias <- shots.all2 %>%
 shots.all.lagged <- shots.all2 %>%
         left_join(year.rink.dist.bias, by=c("season","hometeam")) %>%
         arrange(season, gcode, period, seconds) %>%
-        mutate(shot.dist2 = ((shot.dist + shot.dist.nhl) / 2) * rink.year.distance.inflator,
+        mutate(shot.dist = shot.dist * rink.distance.inflator,
                int.shot.dist = lag(shot.dist),
                int.shot.angle = lag(shot.angle),
-               int.LS.shot = lag(LS.shot)) %>%
-        head(20)
+               int.LS.shot = lag(LS.shot))
 
-
-shots.all2 <- shots.all2[order(shots.all2$season, shots.all2$gcode, shots.all2$period, shots.all2$seconds), ]
-shots.all2 <- slide(shots.all2, Var = "shot.dist", NewVar = "int.shot.dist", slideBy = -1)
-shots.all2 <- slide(shots.all2, Var = "shot.angle", NewVar = "int.shot.angle", slideBy = -1)
-shots.all2 <- slide(shots.all2, Var = "LS.shot", NewVar = "int.LS.shot", slideBy = -1)
-
-shots.all2 <- shots.all2 %>%
-  mutate(       zone.shot = ifelse(home.shooter == 0 & homezone == "Def", "Off",
+shots.all.lagged <- shots.all.lagged %>%
+          mutate(zone.shot = ifelse(home.shooter == 0 & homezone == "Def", "Off",
                                    ifelse(home.shooter == 0 & homezone == "Off", "Def",
                                           ifelse(home.shooter == 1 & homezone == "Off", "Off",
                                                  ifelse(home.shooter == 1 & homezone == "Def", "Def",
@@ -431,25 +437,23 @@ shots.all2 <- shots.all2 %>%
 
 
 # Check counts of factors
-aggregate(goal ~ gamestate, data = shots.all2, FUN = length)
-aggregate(goal ~ shot.type, data = shots.all2, FUN = length)
-aggregate(distance ~ season, data = shots.all2, FUN = mean)
-aggregate(goal ~ season, data = shots.all2, FUN = length)
+aggregate(goal ~ gamestate, data = shots.all.lagged, FUN = length)
+aggregate(goal ~ shot.type, data = shots.all.lagged, FUN = length)
+aggregate(distance ~ season, data = shots.all.lagged, FUN = mean)
+aggregate(goal ~ season, data = shots.all.lagged, FUN = length)
 #aggregate(distance ~ SA.Goalie, data = shots.all2, FUN = length)
 
 
 # Check even distribution
-sum(shots.all2$even.second) / length(shots.all2$even.second) #0.498641
+sum(shots.all.lagged$even.second) / length(shots.all.lagged$even.second) #0.498641
 
 ############################################################################################################################################################################
 ########1.C CALCULATE SHOOTER SKILL (not including blocked/missed shots)
 ############################################################################################################################################################################
-load(url("http://war-on-ice.com/data/nhlscrapr-core.RData")) # Not updated
 
 # Find player-level shooting percentage
-shooter.skill <- shots.all2 %>%
+shooter.skill <- shots.all.lagged %>%
   select(Player, goal) %>%
-  #            mutate(Player = toupper(trimws(substr(ev.player.1, 3, nchar(ev.player.1))))) %>%
   group_by(Player) %>%
   dplyr::summarise(shooting.percentage = sum(as.numeric(goal)-1) / length(goal),
                    goals = sum(as.numeric(goal)-1),
@@ -470,7 +474,7 @@ regressed.shooter.skill <- shooter.skill %>%
   
   select(Player, regressed.shooting.skill.index)
 
-shots.all.reg <- shots.all2 %>%
+shots.all.reg <- shots.all.lagged %>%
   left_join(regressed.shooter.skill, by = c("Player" = "Player"))
 
 save(shots.all.reg, file="~/Documents/CWA/Hockey Data/shots.all.reg.RData")
@@ -617,7 +621,7 @@ predicted.goal.model <- lm.cv.10(shots.all.reg,
                                 "time.last.def.give", "last.def.give",
                                 "time.last.neu.give", "last.neu.give",
                                 "shot.type","gamestate","regressed.shooting.skill.index",
-                                "Player.Position","Shooter.Handedness"
+                                "Player.Position","Off.Hand.Shot","Handed.Class2"
                                 ),  
                                 
 
