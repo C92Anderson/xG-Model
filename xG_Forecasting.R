@@ -72,7 +72,7 @@ goalie.season <- goalie.shots %>%
 
 # Plot shot difficulty
 goalie.season %>%
-  filter(season == "20162017" & (season.Shots > 1000)) %>%
+  filter(season == "20162017" & (season.Shots > 750)) %>%
   arrange(desc(xG.shot)) %>%
   ggplot() +
   geom_segment(aes(x = reorder(SA.Goalie,-xG.shot), 
@@ -84,7 +84,7 @@ goalie.season %>%
    coord_flip() +
   theme(panel.background = element_blank(), 
         panel.grid.major.y = element_line(colour = "light grey", size = 0.1)) +
-  labs(title=paste0("Goaltending Performance (QREAM*) 2016-17 - *Quality Rules Everything Around Me\nSorted by Mean xG per Shot Faced (Minimum 1000 shots)"),
+  labs(title=paste0("Goaltending Performance (QREAM*) 2016-17 - *Quality Rules Everything Around Me\nSorted by Mean xG per Shot Faced (Minimum 750 shots)"),
        x="Goalie", y="(Expected) Goals per Shot", color="QREAM per Shot", size = "Season Shots") +
   annotate("text", x = 6, y = (min(goalie.season$xG.shot) - 0.01), hjust=0, 
            label = "Grey bubble: xG / Shot\nDark bubble: Actual GA / Shot\n@CrowdScoutSprts\nxG Model built using nhlscrapr\ngithub.com/C92Anderson/xG-Model")
@@ -177,28 +177,30 @@ SOX.corr <- corr(as.matrix(goalie.season.splits[c("even.xGS.100", "odd.xGS.100")
 svP.corr <- corr(as.matrix(goalie.season.splits[c("even.save.pecentage", "odd.save.pecentage")]), w = (goalie.season.splits$total.Shots))
 
 # Plot Sox
-goalie.season.splits %>%
+qream.split <- goalie.season.splits %>%
         ggplot() +
         geom_point(aes(x=even.xGS.100,y=odd.xGS.100,size=total.Shots, color=total.Shots)) +
         scale_color_gradient2(low="light grey",high="blue", guide = FALSE) +
         #geom_smooth(aes(x=even.xGS.100, y=odd.xGS.100), size = 1.5, colour = "black", se = TRUE, stat = "smooth", method = "lm")
         annotate("segment", x = -5, y = -5, xend = 5, yend = 5) +
         annotate("text", x = -4, y = 4, hjust = 0, label = paste0("Intra-season correlation: ", round(SOX.corr,2))) +
-        labs(title="Intra-Season Correlation - Expected Goals Against - Actual Goals Against per 100 Shots\n@CrowdScoutSprts - github.com/C92Anderson/xG-Model") +
+        labs(title="Intra-Season QREAM Correlation - Expected Goals Against - Actual Goals Against per 100 Shots\n@CrowdScoutSprts - github.com/C92Anderson/xG-Model") +
         labs(x="Even Second QREAM / 100 Shots",y="Odd Second QREAM / 100 Shots",size="Shots Against") +
         theme(panel.background = element_blank()) 
 
 # Plot Save Percentage
-goalie.season.splits %>%
+svp.split <- goalie.season.splits %>%
   ggplot() +
   geom_point(aes(x=even.save.pecentage,y=odd.save.pecentage,size=total.Shots, color=total.Shots)) +
   scale_color_gradient2(low="light grey",high="blue", guide = FALSE) +
   #geom_smooth(aes(x=even.xGS.100, y=odd.xGS.100), size = 1.5, colour = "black", se = TRUE, stat = "smooth", method = "lm")
   annotate("segment", x = 0.88, y = 0.88, xend = 0.95, yend = 0.95) +
   annotate("text", x = 0.885, y = 0.94, hjust = 0, label = paste0("Intra-season correlation: ", round(svP.corr,3))) +
-  labs(title="Intra-Season Correlation - Save Percentage\n@CrowdScoutSprts - github.com/C92Anderson/xG-Model") +
+  labs(title="Intra-Season Correlation - Save Percentage") +
   labs(x="Even Second Save Percentage",y="Odd Second Save Percentage",size="Shots Against") +
   theme(panel.background = element_blank()) 
+
+multiplot(qream.split, svp.split)
 
 ############################################################################################################################################################################
 ######## 2.A PREDICT NEW SEASON XGS / 100 
@@ -248,7 +250,7 @@ summary(fit)
 #Multiple R-squared:  0.9285,	Adjusted R-squared:  0.9283 
 
 # var importance
-var.imp <- varImp(goal.model)
+var.imp <- varImp(rf.model)
 
 ############################################################################################################################################################################
 ######## 2.C LINEAR MODEL
