@@ -90,7 +90,7 @@ season.sims <- function(goalies, year, sims) {
 }
 
 
-comrie.gillies <- season.sims(c("JON GILLIES","ERIC COMRIE"),"20162017",100)
+comrie.gillies <- season.sims(c("JON GILLIES","ERIC COMRIE"),"20162017",500)
 comrie.gillies[[1]]
 
 
@@ -110,4 +110,4 @@ chi <- season.sims(c("ANTTI RAANTA","COREY CRAWFORD","SCOTT DARLING"),"20162017"
 
 cali <- season.sims(c("AARON DELL","MARTIN JONES","JONATHAN QUICK","PETER BUDAJ","JOHN GIBSON","JONATHAN BERNIER"),"20162017",10000)
 
-sj <- season.sims(c("AARON DELL","MARTIN JONES"),"20162017",10000)
+topbackups <- season.sims(c("AARON DELL","SCOTT DARLING","ANTTI RAANTA","JUUSE SAROS"),"20162017",10000)
