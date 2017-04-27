@@ -56,15 +56,13 @@ season.sims <- function(goalies, year, sims) {
         
       }
       
-      
       ## For simulated season take difference between simulated goals and actual goals
       sim.goalie.vec[s] <- (sum(sim.season.vec) - sum(as.numeric(goalie.shots$goal)-1)) / (length(sim.season.vec) / 100)
       
     }
     
     sim.QREAM.100 <- cbind(sim.QREAM.100,sim.goalie.vec)
-    #by.shot[s,] <- cbind(goalie.season$gcode,cumsum(sim.season.vec - (as.numeric(goalie.season$goal)-1))) %>%  as.data.frame() %>% group_by(V1) %>%tail(1) %>% select(V2)
-    
+
   }
   
   colnames(sim.QREAM.100) <- c(unique(season.shots$SA.Goalie))
@@ -76,13 +74,7 @@ season.sims <- function(goalies, year, sims) {
     mutate(outcome = sim.QREAM.100) %>%
     group_by(Var2, outcome) %>%
     summarise(share = n() / sims)
-  
-  # Find max probability
-  #y.val <- max(totals$share)
-  #bar.dims <- totals %>%
-  #          mutate(width = ifelse(share == max(totals$share), outcome - lag(outcome), 0)) %>%
-  #          filter(width > 0)
-  
+
   ## Plot histogram
   p1 <- sim.QREAM.1002 %>%
     ggplot() +
@@ -92,25 +84,7 @@ season.sims <- function(goalies, year, sims) {
          x="Simulated Expected Goals - Actual Goals per 100 Shots", y="Density", fill="Goalie") +
     annotate("segment", x=0, xend=0, y=0, yend=0.1, color="grey") +
     theme(panel.background = element_blank()) #,legend.position = "none")
-  
-  #p2 <- sim.QREAM.1002 %>%
-  #  ggplot() +
-  #  geom_histogram(aes(x=value, y=..count../sum(..count..), alpha=0.1, fill = Var2,group=Var2)) +
-  ## Custom Add Bar
-  #geom_bar(aes(x=round(actual.QREAM,0),y=y.val/100), stat= "identity",fill="green") +
-  #annotate("rect", xmin = bar.dims[[1]] - (bar.dims[[3]]/2), xmax = bar.dims[[1]] + (bar.dims[[3]]/2) , ymin = 0, ymax = bar.dims[[2]],
-  #         alpha = 1, color="green", fill="green") +
-  #annotate("text", x = actual.QREAM + 0.6, y = y.val, hjust=0, 
-  #         label = paste0("Displayed Expected Goals - Actual Goals Against per 100 Shots: ",round(actual.QREAM,1), "\n",round(sum(goalie.season$xG),1)," xG - ", round(sum(as.numeric(goalie.season$goal)-1),1)," Actual Goals Over ",length(goalie.season$goal), " Shots")) +
-  #  labs(title=paste0(paste(goalies,sep="", collapse=", ")," ",year," Performance\nSimulated Expected Goals - Actual Goals Against per 100 Shots - ",sims, " Simulations\n@CrowdScoutSprts - xG Model built using nhlscrapr (github.com/C92Anderson/xG-Model)"),
-  #       x="Simulated Expected Goals - Actual Goals per 100 Shots", y="Probability", fill="Goalie") +
-  #  annotate("segment", x=0, xend=0, y=0, yend=0.1, color="grey") +
-  #  scale_y_continuous(labels = scales::percent) +
-  #  theme(panel.background = element_blank()) #,legend.position = "none")
-  
-  ## Plot shot tracker
-  #by.shot %>% as.data.frame() %>% t() %>%  as.data.frame() %>% melt() %>%ggplot() + geom_line()
-  
+
   return(list(p1))
   
 }
