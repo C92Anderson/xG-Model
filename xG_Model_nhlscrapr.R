@@ -21,7 +21,7 @@
 ############################################################################################################################################################################
 library(ggplot2);library(dplyr); library(DataCombine)
 library(glmnet); library(nhlscrapr); library(caret); library(RMySQL); library(readr); library(reshape2); library(rvest)
-library(twitteR);library(httr)
+library(twitteR);library(httr); library(data.table)
 
 source("/Users/colander1/Documents/CWA/R Code/operations.R")
 
@@ -132,7 +132,7 @@ current.data <- function(last.game) {
 }
 
 # Update with last game from current season
-game.events.17playoffs <- current.data("30200")
+game.events.17playoffs <- current.data("30250")
 
 # Clean
 game.events.17playoffs <- game.events.17playoffs %>% dplyr::distinct() %>% filter(!is.na(gcode))
@@ -360,803 +360,805 @@ save(pbp.all.clean,file="~/Documents/CWA/Hockey Data/pbpall.RData")
 ############################################################################################################################################################################
 ########1.B LIMIT TO SHOTS AGAINST AND DEVELOP FEATURES
 ############################################################################################################################################################################
-load("~/Documents/CWA/Hockey Data/pbpall.RData")
-
-# Create shots dataset  1,034,072  -> 1,029,769  #### Drop misses, no x,y coordinates
-shots.all <- pbp.all.clean %>%
-              # Shots Only
-              filter(etype %in% c("SHOT","GOAL","MISS")) %>%
-              
-              # Remove Shootouts
-              filter(!(period== "5" & substr(gcode,1,1) == "2")) %>%
+  load("~/Documents/CWA/Hockey Data/pbpall.RData")
   
-             arrange(season, gcode, period, seconds) %>%
-             mutate(Player = toupper(trimws(substr(ev.player.1, 3, nchar(ev.player.1)))),
-                    time.index = paste0(as.character(gcode),seconds),
-                    even.second = ifelse(as.numeric(seconds) %% 2 == 0,1,0),
-                    season.type = ifelse(substr(gcode,1,1) == "3","PO","RS"),
-                    season2 = ifelse(substr(gcode,1,1) == "3", paste0(season,"p"), paste0(season))) %>%
-             
-             left_join(skater.name.xwalk, by = c("Player" = "Player1")) %>%
-  
-             mutate(Player = ifelse(!is.na(Player_clean),Player_clean,Player)) %>%
-  
-             left_join(skater.roster, by = c("Player" = "Player")) %>% 
-  
-             mutate(SA.Goalie = ifelse(ev.team == hometeam, 
-                            trimws(substr(away.G, 3, nchar(away.G))),
-                            trimws(substr(home.G, 3, nchar(home.G)))),
-                    SA.Goalie = ifelse(SA.Goalie == "ILJA BRYZGALOV","ILYA BRYZGALOV",
-                                       ifelse(SA.Goalie == "ALEXANDER AULD","ALEX AULD",
-                                       ifelse(SA.Goalie == "EMMANUEL LEGACE","MANNY LEGACE",
-                                       ifelse(SA.Goalie == "EMMANUEL FERNANDEZ","MANNY FERNANDEZ",
-                                       ifelse(SA.Goalie == "TIMOTHY JR. THOMAS","TIM THOMAS",
-                                       ifelse(SA.Goalie == "SIMEON VARLAMOV","SEMYON VARLAMOV",
-                                       ifelse(SA.Goalie == "JAMES HOWARD","JIMMY HOWARD",
-                                       ifelse(SA.Goalie == "JEFF DROUIN-DESLAURIERS","JEFF DESLAURIERS",
-                                                     SA.Goalie)))))))),
-                    ENG = ifelse(ev.team == awayteam & nchar(home.G) == 0,1,
-                          ifelse(ev.team == hometeam & nchar(away.G) == 0,1,
-                                        0)),
+  # Create shots dataset  1,034,072  -> 1,029,769  #### Drop misses, no x,y coordinates
+  shots.all <- pbp.all.clean %>%
+                # Shots Only
+                filter(etype %in% c("SHOT","GOAL","MISS")) %>%
                 
-                    awaystate = ifelse(nchar(a4) == 0, 3,
-                                       ifelse(nchar(a5) == 0, 4,
-                                           ifelse(nchar(a6) == 0, 5,
-                                            6))),
-                    homestate = ifelse(nchar(h4) == 0, 3,
-                                       ifelse(nchar(h5) == 0, 4,
-                                           ifelse(nchar(h6) == 0, 5,        
-                                            6))),
-                    gamestate = ifelse(ev.team == awayteam, 
-                                            paste0(awaystate,"v",homestate),
-                                            paste0(homestate,"v",awaystate)),
-                    gamestate = ifelse(gamestate %in% c("3v5","3v4","3v6","4v5","4v6","5v6"),"SH.SA",
-                                      ifelse(gamestate %in% c("6v3","6v4","5v3"),"PP.2p.SA",
-                                      ifelse(gamestate %in% c("5v5","6v6"),"5v5",
-                                              gamestate))),
-                    shot.type = droplevels(as.factor(ifelse(type %in% c("Deflected","Tip-In"), "Deflected",
-                                                     ifelse(type %in% c("Wrist","Snap","Unspecified"),"Wrist",
-                                                            as.character(type))))),
-             
-                    home.shooter = ifelse(ev.team == awayteam, 0, 1),
-             
-                    same.period.shot = ifelse(gcode == lag(gcode) & period == lag(period),1,0),  
-                    is.Rebound = as.factor(ifelse(is.na(lag(etype)),0,
-                                          ifelse(lag(etype) == "SHOT" & same.period.shot == 1 & ((seconds - lag(seconds)) <= 2),1,0))),
-
-                   Shooter.Handedness = ifelse(Shoots == "L","L",
-                                        ifelse(Shoots == "R","R",
-                                        ifelse(is.na(Shoots),"U","U"))),
-                   Player.Position = ifelse(!is.na(Player.Position), Player.Position, "U"),
-                   Shooter.Handedness = ifelse(!is.na(Shooter.Handedness), Shooter.Handedness, "U")) %>%
-  
-          left_join(goalie.roster, by="SA.Goalie") %>%
-          mutate(Catches = ifelse(is.na(Catches) | Catches == "NULL","L",Catches),
-                    Handed.Class = ifelse(Shooter.Handedness == "L" & Catches == "L", "LL",
-                                         ifelse(Shooter.Handedness == "L" & Catches == "R", "LR",
-                                                ifelse(Shooter.Handedness == "R" & Catches == "L", "RL",
-                                                       ifelse(Shooter.Handedness == "R" & Catches == "R", "RR",
-                                                              "U")))),
-                   Handed.Class2 = ifelse(Handed.Class %in% c("LL","RR"),"Same",
-                                          ifelse(Handed.Class %in% c("LR","RL"),"Opposite",
-                                                 "U")),
-                   Player.Position2 = ifelse(Player.Position == "D", "D", 
-                                             ifelse(Player.Position %in% c("C","L","R","F"),"F",
-                                                    "U"))) %>%
-        filter(ENG == 0) %>%
-        filter(Handed.Class2 != "U") 
-
-## Re-organize  
-shots.all$shot.type <- droplevels(shots.all$shot.type)
-
-## Check players with unknown handedness
-shots.all %>%  filter(Player.Position == "U") %>% group_by(Player, Player.Position) %>% count(cnt = n()) %>% arrange(-cnt)
-
-#####
-### Deal with NHL PBP coordinates, see: http://hockeyanalytics.com/Research_files/SQ-RS0910-Krzywicki.pdf                                   
-shots.all.coords <- shots.all %>%
-            filter(xcoord != "NA") %>%
-            group_by(season.type, season, gcode, period, hometeam, home.shooter) %>%
-            summarise(median_xcoord = median(xcoord),
-                      mean_xcoord = mean(xcoord),
-                      sample = n()) %>%
-            #mutate(standardized.xcoord = ifelse(season.type == "RS" & period %in% c(2) , mean_xcoord * -1, mean_xcoord)) %>%
-            #group_by(season.type, season, gcode, hometeam, home.shooter) %>%
-            #summarise(standardized.xcoord = weighted.mean(standardized.xcoord, w = sample)) %>%
-            dcast(season.type + season + gcode + hometeam + period ~ home.shooter, value.var = "median_xcoord") %>%
-            mutate(#home.align.east = ifelse(`1` > `0`, 1, 0),
-                   period.flip.away = ifelse(`0` < 0, 1, 0),
-                   period.flip.home = ifelse(`1` < 0, 1, 0)) %>%
-            #select(season, gcode, hometeam, home.align.east) %>%
-            
-            ### Home Alignment set, merge back on all shot data
-            right_join(shots.all, by=c("season.type","season","gcode","hometeam","period")) %>%
-  
-            mutate(### Flip coords
-                   #flip.coords = ifelse((season.type == "RS" & home.align.east == 1 & home.shooter == 1 & period %in% c(2)) |
-                  #                      (season.type == "RS" & home.align.east == 1 & home.shooter == 0 & period %in% c(1,3,4)) |
-                   #                     (season.type == "RS" & home.align.east == 0 & home.shooter == 0 & period %in% c(2)) |
-                    #                    (season.type == "RS" & home.align.east == 0 & home.shooter == 1 & period %in% c(1,3,4)) |
-                     #                   (season.type == "PO" & home.align.east == 1 & home.shooter == 1 & (period %% 2 == 0)) |
-                      #                  (season.type == "PO" & home.align.east == 1 & home.shooter == 0 & (period %% 2 != 0)) |
-                       #                 (season.type == "PO" & home.align.east == 0 & home.shooter == 0 & (period %% 2 == 0)) |
-                        #                (season.type == "PO" & home.align.east == 0 & home.shooter == 1 & (period %% 2 != 0)), 1, 0),
+                # Remove Shootouts
+                filter(!(period== "5" & substr(gcode,1,1) == "2")) %>%
+    
+               arrange(season, gcode, period, seconds) %>%
+               mutate(Player = toupper(trimws(substr(ev.player.1, 3, nchar(ev.player.1)))),
+                      time.index = paste0(as.character(gcode),seconds),
+                      even.second = ifelse(as.numeric(seconds) %% 2 == 0,1,0),
+                      season.type = ifelse(substr(gcode,1,1) == "3","PO","RS"),
+                      season2 = ifelse(substr(gcode,1,1) == "3", paste0(season,"p"), paste0(season))) %>%
+               
+               left_join(skater.name.xwalk, by = c("Player" = "Player1")) %>%
+    
+               mutate(Player = ifelse(!is.na(Player_clean),Player_clean,Player)) %>%
+    
+               left_join(skater.roster, by = c("Player" = "Player")) %>% 
+    
+               mutate(SA.Goalie = ifelse(ev.team == hometeam, 
+                              trimws(substr(away.G, 3, nchar(away.G))),
+                              trimws(substr(home.G, 3, nchar(home.G)))),
+                      SA.Goalie = ifelse(SA.Goalie == "ILJA BRYZGALOV","ILYA BRYZGALOV",
+                                         ifelse(SA.Goalie == "ALEXANDER AULD","ALEX AULD",
+                                         ifelse(SA.Goalie == "EMMANUEL LEGACE","MANNY LEGACE",
+                                         ifelse(SA.Goalie == "EMMANUEL FERNANDEZ","MANNY FERNANDEZ",
+                                         ifelse(SA.Goalie == "TIMOTHY JR. THOMAS","TIM THOMAS",
+                                         ifelse(SA.Goalie == "SIMEON VARLAMOV","SEMYON VARLAMOV",
+                                         ifelse(SA.Goalie == "JAMES HOWARD","JIMMY HOWARD",
+                                         ifelse(SA.Goalie == "JEFF DROUIN-DESLAURIERS","JEFF DESLAURIERS",
+                                                       SA.Goalie)))))))),
+                      ENG = ifelse(ev.team == awayteam & nchar(home.G) == 0,1,
+                            ifelse(ev.team == hometeam & nchar(away.G) == 0,1,
+                                          0)),
                   
-                   # Flag non ozone shots
-                   #shot.outside.blueline = ifelse((home.shooter == 1 & homezone == "Off") || (home.shooter == 0 & homezone == "Def"), 0, 1),
-                   
-                
-                   # Standardize coordinates
-                   XC = ifelse(period.flip.away == 1 & home.shooter == 0 | 
-                               period.flip.home == 1 & home.shooter == 1,xcoord * -1, xcoord),
-
-                   YC = ifelse(period.flip.away == 1 & home.shooter == 0 | 
-                               period.flip.home == 1 & home.shooter == 1,ycoord * -1, ycoord),
-                   
-                   # Original calculation
-                   shot.dist = sqrt((89 - XC)**2 + (YC ** 2)),
-                   shot.angle = atan(abs(89 - XC) / abs(0 - YC)) * (180 / pi),
-                   
-                   # Alternate calculation
-                   flip.x.coord = ifelse(abs(shot.dist - adjusted.distance) > 10, 1, 0), 
-                   shot.dist = ifelse(flip.x.coord == 1, sqrt((89 + XC)**2 + (YC ** 2)), shot.dist),
-
-                   # Check update, default to NHL calculation
-                   nhl.distance.used = ifelse((abs(shot.dist - adjusted.distance) > 5) | is.na(shot.dist), 1, 0),
-                   shot.dist = ifelse(nhl.distance.used == 1, adjusted.distance, shot.dist),
-                   
-                   adjusted.distance1 = adjusted.distance,
-                   distance = shot.dist,
-                   
-                   distance.bucket = round(shot.dist,0),
-                   
-                   # Flip y coord to determine left-hand side shot
-                   LS.shot = ifelse((flip.x.coord == 0 & YC < 0) | (flip.x.coord == 1 & YC > 0), 1, 0),
-                   LS.shot = ifelse(is.na(LS.shot),0, LS.shot),
-                   
-                   Off.Hand.Shot = ifelse((LS.shot == 1 & Shooter.Handedness == "R") | (LS.shot == 0 & Shooter.Handedness == "L"),1,0))
-
-
-aggregate(xcoord ~ home.shooter + period, data=shots.all.coords, FUN=median)
-aggregate(XC ~ home.shooter + period + season.type, data=shots.all.coords, FUN=median)
-aggregate(shot.dist ~ period, data=shots.all.coords, FUN=mean)
-
-
-check.coords <- shots.all.coords %>% select(season, gcode, Player, hometeam, awayteam, ev.team, period, period.flip.home,period.flip.away, home.shooter, homezone, season, etype,  home.score, xcoord, ycoord, XC, YC, distance
-                                            ,shot.angle,shot.dist,Off.Hand.Shot, LS.shot, Shooter.Handedness,homezone,
-                                            homezone,flip.x.coord, nhl.distance.used, adjusted.distance) %>% tail(100000)
-
-
-shots.all.coords2 <- create.adjusted.distance(shots.all.coords)[[1]]
-
-shots.all.coords2 %>%
-    head(100000) %>%
-    ggplot(aes(x=adjusted.distance1, y=adjusted.distance, color=hometeam)) +
-    geom_point()
-
-
-shots.all.coords2 %>% group_by(season2) %>% select(XC) %>% count()
-
-################################################
-# Impute Shot Angle
-################################################
-
-library(modelr); library(dplyr); library(purrr); library(broom); library(tidyr); library(ggplot2); library(MLmetrics)
-set.seed(1234)  
-
-shot.angle.impute.data <- shots.all.coords2 %>%
-            filter(!is.na(XC))
-
-YC.impute.model <- glm(data=shot.angle.impute.data, 
-                       abs(YC) ~ adjusted.distance + Off.Hand.Shot + LS.shot + shot.type + Player.Position)
-
-YC.impute.model %>% summary()
-
-# R-squared
-1 - (YC.impute.model$deviance / YC.impute.model$null.deviance)
-#0.2704556
-
-# Mean Absolute Error
-mean(abs(predict(YC.impute.model, shot.angle.impute.data) - shot.angle.impute.data$YC))
-# 19.60633
-
-# RMSE
-sqrt(mean((predict(YC.impute.model, shot.angle.impute.data) - shot.angle.impute.data$YC)^2))
-#25.52792
-  
-## Predict Shot Angle
-pred.YC <- predict(YC.impute.model, shots.all.coords2) 
-
-## Combine Data and Impute
-shots.all.impute1 <- cbind(shots.all.coords2,pred.YC) %>%
-           mutate(imputed.shot.angle = ifelse(is.na(shot.angle), 1, 0),
-                  shot.angle = ifelse(imputed.shot.angle == 1, acos(min(1,abs(pred.YC) / adjusted.distance)) * (180 / pi), shot.angle))
-
-shots.all.impute1 %>% select(shot.angle) %>% na.omit() %>% count()
-
-################################################
-# Slide last shot coordinates
-################################################
-
-shots.all.lagged <- shots.all.impute1 %>%
-        arrange(season, gcode, period, seconds) %>%
-        mutate(shot.dist.unadj = shot.dist,
-               shot.dist = adjusted.distance,
-               last.shot.dist = ifelse(same.period.shot == 1, lag(shot.dist), NA),
-               last.shot.angle = ifelse(same.period.shot == 1, lag(shot.angle), NA),
-               last.LS.shot = ifelse(same.period.shot == 1, lag(LS.shot), 0),
-               zone.shot = ifelse(home.shooter == 0 & homezone == "Def", "Off",
-                                   ifelse(home.shooter == 0 & homezone == "Off", "Def",
-                                          ifelse(home.shooter == 1 & homezone == "Off", "Off",
-                                                 ifelse(home.shooter == 1 & homezone == "Def", "Def",
-                                                        "Neu")))),
-               last.zone = ifelse(home.shooter == 0 & lag.home.zone == "Def", "Off",
-                                   ifelse(home.shooter == 0 & lag.home.zone == "Off", "Def",
-                                          ifelse(home.shooter == 1 & lag.home.zone == "Off", "Off",
-                                                 ifelse(home.shooter == 1 & lag.home.zone == "Def", "Def",
-                                                        "Neu")))),
-                is.Rush = as.factor(ifelse(last.event.time <= 6 & zone.shot != last.zone,1,0)),
+                      awaystate = ifelse(nchar(a4) == 0, 3,
+                                         ifelse(nchar(a5) == 0, 4,
+                                             ifelse(nchar(a6) == 0, 5,
+                                              6))),
+                      homestate = ifelse(nchar(h4) == 0, 3,
+                                         ifelse(nchar(h5) == 0, 4,
+                                             ifelse(nchar(h6) == 0, 5,        
+                                              6))),
+                      gamestate = ifelse(ev.team == awayteam, 
+                                              paste0(awaystate,"v",homestate),
+                                              paste0(homestate,"v",awaystate)),
+                      gamestate = ifelse(gamestate %in% c("3v5","3v4","3v6","4v5","4v6","5v6"),"SH.SA",
+                                        ifelse(gamestate %in% c("6v3","6v4","5v3"),"PP.2p.SA",
+                                        ifelse(gamestate %in% c("5v5","6v6"),"5v5",
+                                                gamestate))),
+                      shot.type = droplevels(as.factor(ifelse(type %in% c("Deflected","Tip-In"), "Deflected",
+                                                       ifelse(type %in% c("Wrist","Snap","Unspecified"),"Wrist",
+                                                              as.character(type))))),
                
-                #is.Rebound = as.numeric(is.Rebound) - 1,
-                
-                # Last Event
-                last.off.faceoff = ifelse(last.zone == "Off" & lag.event == "FAC", 1, 0),
-                last.def.faceoff = ifelse(last.zone == "Def" & lag.event == "FAC", 1, 0),
-                last.neu.faceoff = ifelse(last.zone == "Neu" & lag.event == "FAC", 1, 0),
-                last.off.shot = ifelse(last.zone == "Off" & lag.event %in% c("SHOT","BLOCK","MISS"), 1, 0),
-                last.def.shot = ifelse(last.zone == "Def" & lag.event %in% c("SHOT","BLOCK","MISS"), 1, 0),
-                last.neu.shot = ifelse(last.zone == "Neu" & lag.event %in% c("SHOT","BLOCK","MISS"), 1, 0),
-                last.off.give = ifelse(last.zone == "Off" & lag.event %in% c("TAKE","GIVE"), 1, 0),
-                last.def.give = ifelse(last.zone == "Def" & lag.event %in% c("TAKE","GIVE"), 1, 0),
-                last.neu.give = ifelse(last.zone == "Neu" & lag.event %in% c("TAKE","GIVE"), 1, 0),
-                
-                # Time from Last Event
-                LN.last.event.time = ifelse(last.event.time > 0, log(last.event.time), 0),
+                      home.shooter = ifelse(ev.team == awayteam, 0, 1),
                
-                time.last.off.faceoff = last.off.faceoff * LN.last.event.time,
-                time.last.def.faceoff = last.def.faceoff * LN.last.event.time,
-                time.last.neu.faceoff = last.neu.faceoff * LN.last.event.time,
-                time.last.off.shot = last.off.shot * LN.last.event.time,
-                time.last.def.shot = last.def.shot * LN.last.event.time,
-                time.last.neu.shot = last.neu.shot * LN.last.event.time,
-                time.last.off.give = last.off.give * LN.last.event.time,
-                time.last.def.give = last.def.give * LN.last.event.time,
-                time.last.neu.give = last.neu.give * LN.last.event.time,
-                
-                # Distance from last event
-                #dist.last.event = ifelse(is.na(lag.XC),0,sqrt((XC - lag.XC)**2 + (YC - lag.YC)**2)),
-                
-                # Speed last event
-                #speed.last.event = dist.last.event / last.event.time,
-                
-                Rebound.Angle.Change = ifelse(is.Rebound == 0, 0, 
-                                       ifelse(LS.shot == last.LS.shot, abs(shot.angle - last.shot.angle),
-                                              ifelse(LS.shot != last.LS.shot, 180 - shot.angle - last.shot.angle, 0))),
-         Rebound.Second.Change = ifelse(is.Rebound == 0, 0, 
-                                 ifelse(seconds - lag(seconds) > 2, 2, 
-                                        seconds - lag(seconds))),
-                                        
-                                        
-         Rebound.Distance = ifelse(is.Rebound == 0, 0, shot.dist + last.shot.dist),
-         Rebound.Angle.Distance = ifelse(is.Rebound == 0, 0, Rebound.Angle.Change / Rebound.Distance),
-         Rebound.Angle.Second = ifelse(is.Rebound == 0, 0, Rebound.Angle.Change / Rebound.Second.Change),
-
-        # Transformations 
-         LN.Rebound.Angle.Distance = ifelse(Rebound.Angle.Distance > 0, log(Rebound.Angle.Distance), 0),
-         #LN.Rebound.Angle.Second = ifelse(Rebound.Angle.Second > 0,log(Rebound.Angle.Second), 0),
-          shot.dist.pow2 = shot.dist ** 2,
-         shot.dist.pow3 = shot.dist ** 3,
-         shot.angle.pow2 = shot.angle ** 2,
-         shot.angle.pow3 = shot.angle ** 3,
-         Rink.Year = paste0(hometeam, season))
-
-#shots.all.lagged %>% filter(LN.last.event.time > 0) %>% ggplot(aes(x=LN.last.event.time)) + geom_density()
-#shots.all.lagged %>% select(LN.last.event.time) %>% na.omit() %>% count()
-check.vars <- shots.all.lagged %>% select(Rebound.Angle.Second,LN.last.event.time ,Rebound.Angle.Change,LN.Rebound.Angle.Distance, Rebound.Angle.Distance,Rebound.Distance, Rebound.Second.Change) %>% head(10000)
-
-# Check counts of factors
-aggregate(goal ~ gamestate, data = shots.all.lagged, FUN = length)
-aggregate(goal ~ shot.type, data = shots.all.lagged, FUN = length)
-aggregate(distance ~ season, data = shots.all.lagged, FUN = mean)
-distance.adj.check <- shots.all.lagged %>% 
-  group_by(hometeam, season) %>% 
-  summarise(mean(shot.dist),mean(shot.dist.unadj))
-aggregate(goal ~ season, data = shots.all.lagged, FUN = length)
-#aggregate(distance ~ SA.Goalie, data = shots.all2, FUN = length)
-
-# Check even distribution
-sum(shots.all.lagged$even.second) / length(shots.all.lagged$even.second) #0.498641
-
-############################################################################################################################################################################
-########1.C CALCULATE SHOOTER SKILL (not including blocked/missed shots)
-############################################################################################################################################################################
-
-# Find player-level shooting percentage
-shooter.skill <- shots.all.lagged %>%
-  select(Player, goal) %>%
-  group_by(Player) %>%
-  dplyr::summarise(shooting.percentage = sum(as.numeric(goal)-1) / length(goal),
-                   goals = sum(as.numeric(goal)-1),
-                   shots = length(goal))
-
-#(2062/(2062-1)) * (1-(0.08870118*(2062-0.08870118)/(2062*0.005585664)))
-#n =2062
-#M = 0.08870118
-#var = 0.005585664
-
-# Find average shooting and regress
-regressed.shooter.skill <- shooter.skill %>%
-  dplyr::summarise(mean.shooting.percentage = sum(goals) / sum(shots)) %>%
-  cbind(shooter.skill) %>%
-  mutate(kr21.stabilizer = 375, #http://www.statisticshowto.com/kuder-richardson/ 
-         #https://hockey-graphs.com/2015/10/01/expected-goals-are-a-better-predictor-of-future-scoring-than-corsi-goals/
-         regressed.shooting.skill.index = ((goals + (kr21.stabilizer * mean.shooting.percentage)) / (shots + kr21.stabilizer)) / mean.shooting.percentage) %>%
+                      same.period.shot = ifelse(gcode == lag(gcode) & period == lag(period),1,0),  
+                      is.Rebound = as.factor(ifelse(is.na(lag(etype)),0,
+                                            ifelse(lag(etype) == "SHOT" & same.period.shot == 1 & ((seconds - lag(seconds)) <= 2),1,0))),
   
-  select(Player, regressed.shooting.skill.index)
-
-shots.all.reg <- shots.all.lagged %>%
-  left_join(regressed.shooter.skill, by = c("Player" = "Player"))
-
-save(shots.all.reg, file="~/Documents/CWA/Hockey Data/shots.all.reg.RData")
-
-############################################################################################################################################################################
-########2.A LOGISTIC MODEL TO DEVELOP XG MODEL
-############################################################################################################################################################################
-
-lm.cv.10 <- function(input, model.vars, extra.vars) {
-      
-      library(modelr); library(dplyr); library(purrr); library(broom); library(tidyr); library(ggplot2); library(MLmetrics)
-      set.seed(1234)  
-      
-      # Random Sort & Select Variables
-      input.cc <- input[sample(nrow(input)), names(input) %in% c(model.vars,extra.vars)]
-      
-      # Remove Nan, Inf
-      library(data.table)
-      for (j in 1:ncol(input.cc)) set(input.cc, which(is.infinite(input.cc[[j]])), j, NA)
-      for (j in 1:ncol(input.cc)) set(input.cc, which(is.nan(input.cc[[j]])), j, NA)
-      
-      input.cc <- input.cc[complete.cases(input.cc),]
-      model.data <- input.cc[names(input.cc) %in% c(model.vars)]
-      
-      print(sapply(sapply(model.data, unique),length))
-      
-      print(sapply(model.data, class))
-      
-      # Set folds
-      folds <- crossv_kfold(model.data, k = 10)
-      
-      # Run model over folds
-      model.folds <- folds %>% 
-          mutate(model = map(train, ~ glm(goal ~ ., data = ., family = "binomial", na.action = na.exclude)))
-      
-      # Predict test data
-      predicted <- model.folds %>% 
-                  mutate(predicted = map2(model, test, ~ augment(.x, newdata = .y, , type.predict = "response"))) %>% 
-                  unnest(predicted)
-      
-      #Calculate residual
-      predicted <- predicted %>% 
-        mutate(goal = (as.numeric(goal)-1),
-               residual = .fitted - goal)
-      
-      # Brier Score
-      brierScore <- mean((predicted$.fitted-predicted$goal)^2)
-      print(brierScore)
-      
-      # Calculate r-squared
-      rs <- predicted %>%
-        group_by(.id) %>% 
-        summarise(
-          sst = sum((goal - mean(goal)) ^ 2), # Sum of Squares Total
-          sse = sum(residual ^ 2),          # Sum of Squares Residual/Error
-          r.squared = 1 - sse / sst         # Proportion of variance accounted for
-        )
-      
-      # Probability Cutoff
-      cutoff.roc.scores <- function(cut, prob, y) {
-        
-        yhat <- ifelse(prob > cut,1,0)
-        sensitivity <- length(which(yhat == 1 & y == 1)) / length(which(y == 1)) ##total true positives / total positives
-        specificity <- length(which(yhat == 0 & y == 0)) / length(which(y == 0)) ##total true negatives / total negatives
-        class.rate <- length(which(yhat == y)) / length(y)                      ## total true / total obs
-        distance <- sqrt( (sensitivity - 1)^2 + (specificity - 1)^2 )
-        out = t(as.matrix(c(cut,sensitivity, specificity, class.rate,distance)))
-        colnames(out) = c("cutoff","sensitivity", "specificity", "c.rate", "distance")
-        return(out)
-      }
-      
-      s = seq(.01,.99,length=100)
-      OUT = matrix(0,100,5)
-      for(i in 1:100) {
-        OUT[i,]=cutoff.roc.scores(s[i], predicted$.fitted, predicted$goal)
-        colnames(OUT) = c("cutoff","sensitivity", "specificity", "c.rate", "distance")
-      }
-      
-      class.rates <- as.data.frame(OUT)
-      
-      # Plot Classification Rate
-      class.plot <- class.rates %>%
-        as.data.frame() %>%
-        ggplot() +
-        geom_line(aes(x=cutoff, y=sensitivity,colour="Sensitivity")) +
-        geom_line(aes(x=cutoff, y=specificity,colour="Specificity")) +
-        geom_line(aes(x=cutoff, y=c.rate,colour="Classification Rate")) +
-        geom_line(aes(x=cutoff, y=distance,colour="Distance")) +
-        labs(x="Probability Cutoff", y="", title="Classification Rate", color="") +
-        theme(panel.background = element_blank())
-      
-      # Find Prob Cutoff at minimum distance
-      cutoff <- class.rates[class.rates$distance == min(class.rates$distance),"cutoff"]
-      print(cutoff)
-      
-      # Create confusion matrix
-      con.mat <- table(predicted$goal, predicted$.fitted > (median(cutoff)))
-      
-      # AUC
-      predicted <- predicted[order(predicted$.fitted, decreasing=TRUE), c(".fitted","goal")] 
-      predicted$shot <- 1
-      
-      AUC.curve <- data.frame(TPR=cumsum(predicted$goal)/sum(predicted$goal), 
-                              FPR=cumsum(!predicted$goal)/sum(!predicted$goal),
-                              Rand = cumsum(predicted$shot)/sum(predicted$shot),
-                              Target=predicted$goal) %>%
-                    ggplot() +
-                    geom_line(aes(x=FPR, y=TPR, color="TPR")) +
-                    geom_line(aes(x=FPR, y=Rand, color="Random")) +
-                    labs(x="FPR", y="TPR", title="AUC", color="") +
-                    annotate("text", x = 0.1, y = 0.9, hjust=0, label = paste0("@CrowdScoutSprts\nxG Model built using nhlscrapr\nAUC: ", round(AUC(predicted$.fitted, predicted$goal),2))) +
-                    theme(panel.background = element_blank())
-                              
-      # Gains Chart
-      gains.chart <- data.frame(Gain=cumsum(predicted$goal)/sum(predicted$goal), 
-                                Random = cumsum(predicted$shot)/sum(predicted$shot)) %>%
-                  ggplot() +
-                  geom_line(aes(x=Random, y=Gain,colour="Model")) +
-                  geom_line(aes(x=Random, y=Random,colour="Random")) +
-                  labs(y="Cumulative Share of Goals", x="Cumulative Rank-Ordered Shots", title="Gains Chart", color="") +
-                  annotate("text", x = 0.1, y = 0.9, hjust=0, label = paste0("@CrowdScoutSprts\nxG Model built using nhlscrapr\nGains AUC: ", round(GainAUC(predicted$.fitted, predicted$goal),2))) +
-                  theme(panel.background = element_blank())
-                
-      colnames(predicted) <- c("xG","goal","shot")
-      
-      return(list(model.folds, rs, class.plot, con.mat, cbind(predicted[1],input.cc), AUC.curve, gains.chart))
-}      
-
-load("~/Documents/CWA/Hockey Data/shots.all.reg.RData")
-
-# Check variable distributions
-shots.all.reg %>% ggplot(aes(x=shot.dist)) + geom_density()
-shots.all.reg %>% ggplot(aes(x=shot.angle)) + geom_density()
-shots.all.reg %>% ggplot(aes(x=Rebound.Angle.Second)) + geom_density()
-shots.all.reg %>% ggplot(aes(x=time.last.off.shot)) + geom_density()
-shots.all.reg %>% ggplot(aes(x=time.last.def.shot)) + geom_density()
-shots.all.reg %>% ggplot(aes(x=regressed.shooting.skill.index)) + geom_density()
-shots.all.reg %>% ggplot(aes(x=LN.Rebound.Angle.Distance)) + geom_density()
-shots.all.reg %>% group_by(gamestate) %>% count()
-shots.all.reg %>% group_by(last.off.shot) %>% count()
-shots.all.reg %>% group_by(last.def.shot) %>% count()
-shots.all.reg %>% group_by(last.off.give) %>% count()
-shots.all.reg %>% group_by(last.def.give) %>% count()
-shots.all.reg %>% group_by(last.neu.give) %>% count()
-shots.all.reg %>% group_by(is.Rebound1) %>% count()
-
-
-predicted.goal.model <- lm.cv.10(shots.all.reg,
-                              
-                                 c("goal",
-                                   "shot.dist",
-                                   "shot.dist.pow2",
-                                   "shot.dist.pow3",
-                                   
-                                "shot.angle",
-                                "shot.angle.pow2",
-                                "shot.angle.pow3",
-                                "is.Rush", 
-                                "is.Rebound",
-                                "LN.Rebound.Angle.Distance",
-                                #"last.event.time", Bad Variable
-                                "time.last.off.shot", "last.off.shot",
-                                "time.last.def.shot", "last.def.shot",
-                                "time.last.off.give", "last.off.give",
-                                "time.last.def.give", "last.def.give",
-                                "time.last.neu.give", "last.neu.give",
-                                "shot.type","gamestate","regressed.shooting.skill.index",
-                                "Player.Position2",#"Off.Hand.Shot", Bad Variable
-                                "Handed.Class2"
-                                
-                                #"speed.last.event", Bad Variable
-                               #"dist.last.event" Can't impute
-                                ),  
+                     Shooter.Handedness = ifelse(Shoots == "L","L",
+                                          ifelse(Shoots == "R","R",
+                                          ifelse(is.na(Shoots),"U","U"))),
+                     Player.Position = ifelse(!is.na(Player.Position), Player.Position, "U"),
+                     Shooter.Handedness = ifelse(!is.na(Shooter.Handedness), Shooter.Handedness, "U")) %>%
+    
+            left_join(goalie.roster, by="SA.Goalie") %>%
+            mutate(Catches = ifelse(is.na(Catches) | Catches == "NULL","L",Catches),
+                      Handed.Class = ifelse(Shooter.Handedness == "L" & Catches == "L", "LL",
+                                           ifelse(Shooter.Handedness == "L" & Catches == "R", "LR",
+                                                  ifelse(Shooter.Handedness == "R" & Catches == "L", "RL",
+                                                         ifelse(Shooter.Handedness == "R" & Catches == "R", "RR",
+                                                                "U")))),
+                     Handed.Class2 = ifelse(Handed.Class %in% c("LL","RR"),"Same",
+                                            ifelse(Handed.Class %in% c("LR","RL"),"Opposite",
+                                                   "U")),
+                     Player.Position2 = ifelse(Player.Position == "D", "D", 
+                                               ifelse(Player.Position %in% c("C","L","R","F"),"F",
+                                                      "U"))) %>%
+          filter(ENG == 0) %>%
+          filter(Handed.Class2 != "U") 
+  
+  ## Re-organize  
+  shots.all$shot.type <- droplevels(shots.all$shot.type)
+  
+  ## Check players with unknown handedness
+  shots.all %>%  filter(Player.Position == "U") %>% group_by(Player, Player.Position) %>% count(cnt = n()) %>% arrange(-cnt)
+  
+  #####
+  ### Deal with NHL PBP coordinates, see: http://hockeyanalytics.com/Research_files/SQ-RS0910-Krzywicki.pdf                                   
+  shots.all.coords <- shots.all %>%
+              filter(xcoord != "NA") %>%
+              group_by(season.type, season, gcode, period, hometeam, home.shooter) %>%
+              summarise(median_xcoord = median(xcoord),
+                        mean_xcoord = mean(xcoord),
+                        sample = n()) %>%
+              #mutate(standardized.xcoord = ifelse(season.type == "RS" & period %in% c(2) , mean_xcoord * -1, mean_xcoord)) %>%
+              #group_by(season.type, season, gcode, hometeam, home.shooter) %>%
+              #summarise(standardized.xcoord = weighted.mean(standardized.xcoord, w = sample)) %>%
+              dcast(season.type + season + gcode + hometeam + period ~ home.shooter, value.var = "median_xcoord") %>%
+              mutate(#home.align.east = ifelse(`1` > `0`, 1, 0),
+                     period.flip.away = ifelse(`0` < 0, 1, 0),
+                     period.flip.home = ifelse(`1` < 0, 1, 0)) %>%
+              #select(season, gcode, hometeam, home.align.east) %>%
+              
+              ### Home Alignment set, merge back on all shot data
+              right_join(shots.all, by=c("season.type","season","gcode","hometeam","period")) %>%
+    
+              mutate(### Flip coords
+                     #flip.coords = ifelse((season.type == "RS" & home.align.east == 1 & home.shooter == 1 & period %in% c(2)) |
+                    #                      (season.type == "RS" & home.align.east == 1 & home.shooter == 0 & period %in% c(1,3,4)) |
+                     #                     (season.type == "RS" & home.align.east == 0 & home.shooter == 0 & period %in% c(2)) |
+                      #                    (season.type == "RS" & home.align.east == 0 & home.shooter == 1 & period %in% c(1,3,4)) |
+                       #                   (season.type == "PO" & home.align.east == 1 & home.shooter == 1 & (period %% 2 == 0)) |
+                        #                  (season.type == "PO" & home.align.east == 1 & home.shooter == 0 & (period %% 2 != 0)) |
+                         #                 (season.type == "PO" & home.align.east == 0 & home.shooter == 0 & (period %% 2 == 0)) |
+                          #                (season.type == "PO" & home.align.east == 0 & home.shooter == 1 & (period %% 2 != 0)), 1, 0),
                     
-                              c("season","season2","gcode","period","seconds","ev.team","etype","awayteam","hometeam","away.G","home.G","Player",
-                                "even.second","SA.Goalie","time.index","refdate","event","LS.shot","Shooter.Handedness",
-                                "a1", "a2", "a3", "a4", "a5", "a6", "h1", "h2", "h3", "h4", "h5", "h6"))   
-
-# Summary best plot
-best.model.no <- predicted.goal.model[[2]] %>% filter(r.squared == max(r.squared)) %>% select(.id) %>% as.character()
-best.model <- predicted.goal.model[[1]]$model[[paste0(as.numeric(best.model.no))]] 
-best.model %>% summary()
-
-# Confusion Matrix
-predicted.goal.model[[4]]
-#FALSE   TRUE
-#0 664513 309169
-#1  19368  46069
-
-
-predicted.goal.model[[6]]
-
-predicted.goal.model[[7]]
-
-
-# Classification Plot
-predicted.goal.model[[3]]
-
-# R-squared
-1 - (best.model$deviance / best.model$null.deviance)
-#  0.1002869
-# 0.1123704
-
-# Check xG and goals ratio
-sum(as.numeric(predicted.goal.model[[5]]$goal)-1)
-sum(predicted.goal.model[[5]]$xG)
-# 59672
-# 59672.47
-
-## By Season compare xG to goals
-predicted.goal.model[[5]] %>% 
-        group_by(season) %>% 
-        summarise(xG=sum(xG), goals=sum(as.numeric(goal)-1), 
-                  avg.shot=mean(shot.dist), avg.angle=mean(shot.angle), rebound=mean(as.numeric(is.Rebound)-1),
-                  regressed.shooting.skill.index = mean(regressed.shooting.skill.index)) %>%
-  ggplot() +
-  geom_line(aes(x=season, y=xG,group=1),color="blue") +
-  geom_line(aes(x=season, y=goals,group=1),color="green") +
-  theme(panel.background = element_blank()) +
-  labs(title="Actual Goals (Green) v Expected Goals (Blue) by Season", x="Season",y="")
+                     # Flag non ozone shots
+                     #shot.outside.blueline = ifelse((home.shooter == 1 & homezone == "Off") || (home.shooter == 0 & homezone == "Def"), 0, 1),
+                     
+                  
+                     # Standardize coordinates
+                     XC = ifelse(period.flip.away == 1 & home.shooter == 0 | 
+                                 period.flip.home == 1 & home.shooter == 1,xcoord * -1, xcoord),
   
-
-########################################################################
-#########SCORE DATA AND ADJUST FOR REBOUNDS
-########################################################################
-# Output Predicted
-xG.raw <- predict(best.model, shots.all.reg, type='response')
-
-# Adjust for rebounds
-scored.data.raw <- cbind(xG.raw,shots.all.reg)
-
-scored.data <- scored.data.raw %>%
-  arrange(season, gcode, seconds) %>%
-  mutate(shot.results.inRebound = ifelse(is.na(lead(period)),0,
-                                  ifelse(lead(period) == period & lead(gcode) == gcode & lead(is.Rebound) == 1, 1, 0)),
-         xG = xG.raw,
-         xG.team = ifelse(is.Rebound == 0, xG.raw,
-                   ifelse(is.Rebound == 1 & lag(is.Rebound) == 0, xG.raw * (1-lag(xG.raw)),
-                   ifelse(is.Rebound == 1 & lag(is.Rebound) == 1 & lag(is.Rebound,2) == 0,
-                                    xG.raw * (1-lag(xG.raw)) * (1-lag(xG.raw,2)),
-                   ifelse(is.Rebound == 1 & lag(is.Rebound) == 1 & lag(is.Rebound,2) == 1 & lag(is.Rebound,3) == 0,
-                                 xG.raw * (1-lag(xG.raw)) * (1-lag(xG.raw,2)) * (1-lag(xG.raw,3)),
-                   ifelse(is.Rebound == 1 & lag(is.Rebound) == 1 & lag(is.Rebound,2) == 1 & lag(is.Rebound,3) == 1 & lag(is.Rebound,4) == 0,
-                                 xG.raw * (1-lag(xG.raw)) * (1-lag(xG.raw,2)) * (1-lag(xG.raw,3)) * (1-lag(xG.raw,4)),
-                                 xG.raw * (1-lag(xG.raw)) * (1-lag(xG.raw,2)) * (1-lag(xG.raw,3)) * (1-lag(xG.raw,4))))))))
-
-## Bucket Sh% and xSh%
-scored.data %>% 
-  mutate(xG_bucket = round(xG,1)) %>%
-  group_by(xG_bucket) %>% 
-  summarise(xG_shot=sum(xG) / n(), goals_shot=sum(as.numeric(goal)-1) / n(), shots=n()) %>%
-  ggplot() +
-  #geom_boxplot(aes(x=xG_bucket, y=goals_shot, group= xG_bucket))
-  geom_point(aes(x=xG_bucket, y=goals_shot,size=shots))  
-
-#####################
-### Error Checks
-#####################
-
-### Log Loss
-library(MLmetrics)
-LogLoss(scored.data$xG,as.numeric(scored.data$goal)-1)
-# 0.2036125
-# 0.2583331
-
-error <- scored.data$xG-(as.numeric(scored.data$goal)-1)
-
-## Brier Score - Base Line (goal <- 0): 0.08919192
-mean(error^2)
-# 0.05335231
-# 0.07227214
-
-# Mean Absolute Error
-mean(abs(error))
-# 0.1065062
-# 0.1438155
-
-# RMSE
-sqrt(mean(error^2))
-#0.2309812
-#0.2688348
-
-
-# View by season
-scored.data %>% 
-  group_by(season2) %>% 
-  summarise(xG=sum(xG), goals=sum(as.numeric(goal)-1), xG.shot = xG / n(),
-            avg.dist=mean(shot.dist), avg.angle=mean(shot.angle), rebound=mean(as.numeric(is.Rebound)-1))
-
-# xG Distribution
-scored.data %>%
-  ggplot() +
-  #geom_histogram(aes(xG), binwidth =  0.01)
-  geom_density(aes(xG, color = season)) +
-  theme(panel.background = element_blank()) +
-  labs(title="xG Distribution by Season", y="Density", x="xG Probability") +
-  scale_x_continuous(labels = scales::percent, limits = c(0, 1)) 
-
-############################################################################################################################################################################
-########PREDICT REBOUND
-############################################################################################################################################################################
-
-rebound.model.data <- scored.data %>% filter(goal == 0)
-
-rebound.model <- glm(data = rebound.model.data,
-          shot.results.inRebound ~ xG + shot.dist + shot.dist.pow2 + shot.dist.pow3 + shot.angle + Off.Hand.Shot + shot.type + Player.Position2 +
-          time.last.off.shot + gamestate, family="binomial")
-
-
-rebound.model %>% summary()
-# R-squared
-1 - (rebound.model$deviance / rebound.model$null.deviance)
-#0.03356342
-
-## Predict Shot Angle
-pred.rebound <- predict(rebound.model, scored.data, type='response') 
-
-## Combine Data and Impute
-scored.data <- cbind(scored.data,pred.rebound) 
-
-### Log Loss
-library(MLmetrics)
-LogLoss(scored.data$pred.rebound,scored.data$shot.results.inRebound)
-#0.1520091
-
-rb.error <- scored.data$pred.rebound-scored.data$shot.results.inRebound
-
-## Brier Score - Base Line (goal <- 0): 0.08919192
-mean(rb.error^2)
-# 0.03469594
-
-# Mean Absolute Error
-mean(abs(rb.error))
-# 0.07233442
-
-# RMSE
-sqrt(mean(rb.error^2))
-#0.1860957
-############################################################################################################################################################################
-########2.B SAVE MODEL AND SCORED SHOTS
-############################################################################################################################################################################
-save(scored.data, file="~/Documents/CWA/Hockey Data/xG.scored.data.RData")
-#save(best.model, file="~/Documents/CWA/Hockey Data/xG.best.model.RData")
-
-############################################################################################################################################################################
-########3.A DEVELOP FUNCTIONS SELECT GOALIE-SEASON AND PLOT GOALIE XG SAVE SUCCESS
-############################################################################################################################################################################
-
-# Load Scored Data
-load("~/Documents/CWA/Hockey Data/xG.scored.data.RData")
-
-# Return dataset of goalie-game level data for selected goalies and seasons
-QREAM.fun <- function(goalie, seasons=c("20072008","20082009","20092010","20102011","20112012",
-                                        "20122013","20132014","20142015","20152016","20162017"), shot.cut) {
+                     YC = ifelse(period.flip.away == 1 & home.shooter == 0 | 
+                                 period.flip.home == 1 & home.shooter == 1,ycoord * -1, ycoord),
+                     
+                     # Original calculation
+                     shot.dist = sqrt((89 - XC)**2 + (YC ** 2)),
+                     shot.angle = atan(abs(89 - XC) / abs(0 - YC)) * (180 / pi),
+                     
+                     # Alternate calculation
+                     flip.x.coord = ifelse(abs(shot.dist - adjusted.distance) > 10, 1, 0), 
+                     shot.dist = ifelse(flip.x.coord == 1, sqrt((89 + XC)**2 + (YC ** 2)), shot.dist),
   
-  library(dplyr)
+                     # Check update, default to NHL calculation
+                     nhl.distance.used = ifelse((abs(shot.dist - adjusted.distance) > 5) | is.na(shot.dist), 1, 0),
+                     shot.dist = ifelse(nhl.distance.used == 1, adjusted.distance, shot.dist),
+                     
+                     adjusted.distance1 = adjusted.distance,
+                     distance = shot.dist,
+                     
+                     distance.bucket = round(shot.dist,0),
+                     
+                     # Flip y coord to determine left-hand side shot
+                     LS.shot = ifelse((flip.x.coord == 0 & YC < 0) | (flip.x.coord == 1 & YC > 0), 1, 0),
+                     LS.shot = ifelse(is.na(LS.shot),0, LS.shot),
+                     
+                     Off.Hand.Shot = ifelse((LS.shot == 1 & Shooter.Handedness == "R") | (LS.shot == 0 & Shooter.Handedness == "L"),1,0))
   
-  # Select Goalies, Order by season, game, shot
-  goalie.set <- scored.data %>%
-        filter(SA.Goalie %in% goalie & season %in% seasons) 
   
-  goalie.type <- goalie.set %>%
-        group_by(SA.Goalie, season, season2) %>%
-        summarise(shots = n())
+  aggregate(xcoord ~ home.shooter + period, data=shots.all.coords, FUN=median)
+  aggregate(XC ~ home.shooter + period + season.type, data=shots.all.coords, FUN=median)
+  aggregate(shot.dist ~ period, data=shots.all.coords, FUN=mean)
   
-  # Count cumulative numbers by goalie
-  goalie.set <- goalie.set %>%
-        mutate(Game.ID = as.character(gcode),
-               SA = 1,
-               GA = as.numeric(goalie.set$goal)-1) %>%
-        select(SA.Goalie, season,  season2, Game.ID, seconds, goal, xG, SA, GA) %>%
-        group_by(SA.Goalie) %>%
-        arrange(season, season2, Game.ID, seconds) %>%
-        #Cumulative Counts
-        mutate(cum.xG = cumsum(xG),
-               cum.Goals = cumsum(GA),
-               cum.Shots = cumsum(SA),
-               QREAM = cum.xG - cum.Goals)
   
-  # Calculate game shots
-  game.shots <- goalie.set %>%
-    group_by(SA.Goalie, season, season2, Game.ID) %>%
-    summarise(game.SA=sum(SA), 
-              game.GA=sum(GA),
-              game.xGA=sum(xG))
+  check.coords <- shots.all.coords %>% select(season, gcode, Player, hometeam, awayteam, ev.team, period, period.flip.home,period.flip.away, home.shooter, homezone, season, etype,  home.score, xcoord, ycoord, XC, YC, distance
+                                              ,shot.angle,shot.dist,Off.Hand.Shot, LS.shot, Shooter.Handedness,homezone,
+                                              homezone,flip.x.coord, nhl.distance.used, adjusted.distance) %>% tail(100000)
   
-  # Keep last shot of each game and combine
-  goalie.game <- goalie.set %>%
-        group_by(SA.Goalie, season, season2, Game.ID) %>%
-        do(tail(., n=1)) %>%
-    left_join(game.shots, by=c("SA.Goalie","season","season2","Game.ID")) %>%
-    arrange(SA.Goalie, season, season2, Game.ID) %>%
-    select(SA.Goalie, season, season2, QREAM, Game.ID, game.SA, game.xGA, game.GA, cum.Shots, cum.Goals , cum.xG)
+  
+  shots.all.coords2 <- create.adjusted.distance(shots.all.coords)[[1]]
+  
+  shots.all.coords2 %>%
+      head(100000) %>%
+      ggplot(aes(x=adjusted.distance1, y=adjusted.distance, color=hometeam)) +
+      geom_point()
+  
+  
+  shots.all.coords2 %>% group_by(season2) %>% select(XC) %>% count()
+  
+  ################################################
+  # Impute Shot Angle
+  ################################################
+  
+  library(modelr); library(dplyr); library(purrr); library(broom); library(tidyr); library(ggplot2); library(MLmetrics)
+  set.seed(1234)  
+  
+  shot.angle.impute.data <- shots.all.coords2 %>%
+              filter(!is.na(XC))
+  
+  YC.impute.model <- glm(data=shot.angle.impute.data, 
+                         abs(YC) ~ adjusted.distance + Off.Hand.Shot + LS.shot + shot.type + Player.Position)
+  
+  YC.impute.model %>% summary()
+  
+  # R-squared
+  1 - (YC.impute.model$deviance / YC.impute.model$null.deviance)
+  #0.2704556
+  
+  # Mean Absolute Error
+  mean(abs(predict(YC.impute.model, shot.angle.impute.data) - shot.angle.impute.data$YC))
+  # 19.60633
+  
+  # RMSE
+  sqrt(mean((predict(YC.impute.model, shot.angle.impute.data) - shot.angle.impute.data$YC)^2))
+  #25.52792
+    
+  ## Predict Shot Angle
+  pred.YC <- predict(YC.impute.model, shots.all.coords2) 
+  
+  ## Combine Data and Impute
+  shots.all.impute1 <- cbind(shots.all.coords2,pred.YC) %>%
+             mutate(imputed.shot.angle = ifelse(is.na(shot.angle), 1, 0),
+                    shot.angle = ifelse(imputed.shot.angle == 1, acos(min(1,abs(pred.YC) / adjusted.distance)) * (180 / pi), shot.angle))
+  
+  shots.all.impute1 %>% select(shot.angle) %>% na.omit() %>% count()
+  
+  ################################################
+  # Slide last shot coordinates
+  ################################################
+  
+  shots.all.lagged <- shots.all.impute1 %>%
+          arrange(season, gcode, period, seconds) %>%
+          mutate(shot.dist.unadj = shot.dist,
+                 shot.dist = adjusted.distance,
+                 last.shot.dist = ifelse(same.period.shot == 1, lag(shot.dist), NA),
+                 last.shot.angle = ifelse(same.period.shot == 1, lag(shot.angle), NA),
+                 last.LS.shot = ifelse(same.period.shot == 1, lag(LS.shot), 0),
+                 zone.shot = ifelse(home.shooter == 0 & homezone == "Def", "Off",
+                                     ifelse(home.shooter == 0 & homezone == "Off", "Def",
+                                            ifelse(home.shooter == 1 & homezone == "Off", "Off",
+                                                   ifelse(home.shooter == 1 & homezone == "Def", "Def",
+                                                          "Neu")))),
+                 last.zone = ifelse(home.shooter == 0 & lag.home.zone == "Def", "Off",
+                                     ifelse(home.shooter == 0 & lag.home.zone == "Off", "Def",
+                                            ifelse(home.shooter == 1 & lag.home.zone == "Off", "Off",
+                                                   ifelse(home.shooter == 1 & lag.home.zone == "Def", "Def",
+                                                          "Neu")))),
+                  is.Rush = as.factor(ifelse(last.event.time <= 6 & zone.shot != last.zone,1,0)),
+                 
+                  #is.Rebound = as.numeric(is.Rebound) - 1,
+                  
+                  # Last Event
+                  last.off.faceoff = ifelse(last.zone == "Off" & lag.event == "FAC", 1, 0),
+                  last.def.faceoff = ifelse(last.zone == "Def" & lag.event == "FAC", 1, 0),
+                  last.neu.faceoff = ifelse(last.zone == "Neu" & lag.event == "FAC", 1, 0),
+                  last.off.shot = ifelse(last.zone == "Off" & lag.event %in% c("SHOT","BLOCK","MISS"), 1, 0),
+                  last.def.shot = ifelse(last.zone == "Def" & lag.event %in% c("SHOT","BLOCK","MISS"), 1, 0),
+                  last.neu.shot = ifelse(last.zone == "Neu" & lag.event %in% c("SHOT","BLOCK","MISS"), 1, 0),
+                  last.off.give = ifelse(last.zone == "Off" & lag.event %in% c("TAKE","GIVE"), 1, 0),
+                  last.def.give = ifelse(last.zone == "Def" & lag.event %in% c("TAKE","GIVE"), 1, 0),
+                  last.neu.give = ifelse(last.zone == "Neu" & lag.event %in% c("TAKE","GIVE"), 1, 0),
+                  
+                  # Time from Last Event
+                  LN.last.event.time = ifelse(last.event.time > 0, log(last.event.time), 0),
+                 
+                  time.last.off.faceoff = last.off.faceoff * LN.last.event.time,
+                  time.last.def.faceoff = last.def.faceoff * LN.last.event.time,
+                  time.last.neu.faceoff = last.neu.faceoff * LN.last.event.time,
+                  time.last.off.shot = last.off.shot * LN.last.event.time,
+                  time.last.def.shot = last.def.shot * LN.last.event.time,
+                  time.last.neu.shot = last.neu.shot * LN.last.event.time,
+                  time.last.off.give = last.off.give * LN.last.event.time,
+                  time.last.def.give = last.def.give * LN.last.event.time,
+                  time.last.neu.give = last.neu.give * LN.last.event.time,
+                  
+                  # Distance from last event
+                  #dist.last.event = ifelse(is.na(lag.XC),0,sqrt((XC - lag.XC)**2 + (YC - lag.YC)**2)),
+                  
+                  # Speed last event
+                  #speed.last.event = dist.last.event / last.event.time,
+                  
+                  Rebound.Angle.Change = ifelse(is.Rebound == 0, 0, 
+                                         ifelse(LS.shot == last.LS.shot, abs(shot.angle - last.shot.angle),
+                                                ifelse(LS.shot != last.LS.shot, 180 - shot.angle - last.shot.angle, 0))),
+           Rebound.Second.Change = ifelse(is.Rebound == 0, 0, 
+                                   ifelse(seconds - lag(seconds) > 2, 2, 
+                                          seconds - lag(seconds))),
+                                          
+                                          
+           Rebound.Distance = ifelse(is.Rebound == 0, 0, shot.dist + last.shot.dist),
+           Rebound.Angle.Distance = ifelse(is.Rebound == 0, 0, Rebound.Angle.Change / Rebound.Distance),
+           Rebound.Angle.Second = ifelse(is.Rebound == 0, 0, Rebound.Angle.Change / Rebound.Second.Change),
+  
+          # Transformations 
+           LN.Rebound.Angle.Distance = ifelse(Rebound.Angle.Distance > 0, log(Rebound.Angle.Distance), 0),
+           #LN.Rebound.Angle.Second = ifelse(Rebound.Angle.Second > 0,log(Rebound.Angle.Second), 0),
+            shot.dist.pow2 = shot.dist ** 2,
+           shot.dist.pow3 = shot.dist ** 3,
+           shot.angle.pow2 = shot.angle ** 2,
+           shot.angle.pow3 = shot.angle ** 3,
+           Rink.Year = paste0(hometeam, season))
+  
+  #shots.all.lagged %>% filter(LN.last.event.time > 0) %>% ggplot(aes(x=LN.last.event.time)) + geom_density()
+  #shots.all.lagged %>% select(LN.last.event.time) %>% na.omit() %>% count()
+  check.vars <- shots.all.lagged %>% select(Rebound.Angle.Second,LN.last.event.time ,Rebound.Angle.Change,LN.Rebound.Angle.Distance, Rebound.Angle.Distance,Rebound.Distance, Rebound.Second.Change) %>% head(10000)
+  
+  # Check counts of factors
+  aggregate(goal ~ gamestate, data = shots.all.lagged, FUN = length)
+  aggregate(goal ~ shot.type, data = shots.all.lagged, FUN = length)
+  aggregate(distance ~ season, data = shots.all.lagged, FUN = mean)
+  distance.adj.check <- shots.all.lagged %>% 
+    group_by(hometeam, season) %>% 
+    summarise(mean(shot.dist),mean(shot.dist.unadj))
+  aggregate(goal ~ season, data = shots.all.lagged, FUN = length)
+  #aggregate(distance ~ SA.Goalie, data = shots.all2, FUN = length)
+  
+  # Check even distribution
+  sum(shots.all.lagged$even.second) / length(shots.all.lagged$even.second) #0.498641
+  
+  ############################################################################################################################################################################
+  ########1.C CALCULATE SHOOTER SKILL (not including blocked/missed shots)
+  ############################################################################################################################################################################
+  
+  # Find player-level shooting percentage
+  shooter.skill <- shots.all.lagged %>%
+    select(Player, goal) %>%
+    group_by(Player) %>%
+    dplyr::summarise(shooting.percentage = sum(as.numeric(goal)-1) / length(goal),
+                     goals = sum(as.numeric(goal)-1),
+                     shots = length(goal))
+  
+  #(2062/(2062-1)) * (1-(0.08870118*(2062-0.08870118)/(2062*0.005585664)))
+  #n =2062
+  #M = 0.08870118
+  #var = 0.005585664
+  
+  # Find average shooting and regress
+  regressed.shooter.skill <- shooter.skill %>%
+    dplyr::summarise(mean.shooting.percentage = sum(goals) / sum(shots)) %>%
+    cbind(shooter.skill) %>%
+    mutate(kr21.stabilizer = 375, #http://www.statisticshowto.com/kuder-richardson/ 
+           #https://hockey-graphs.com/2015/10/01/expected-goals-are-a-better-predictor-of-future-scoring-than-corsi-goals/
+           regressed.shooting.skill.index = ((goals + (kr21.stabilizer * mean.shooting.percentage)) / (shots + kr21.stabilizer)) / mean.shooting.percentage) %>%
+    
+    select(Player, regressed.shooting.skill.index)
+  
+  shots.all.reg <- shots.all.lagged %>%
+    left_join(regressed.shooter.skill, by = c("Player" = "Player"))
+  
+  save(shots.all.reg, file="~/Documents/CWA/Hockey Data/shots.all.reg.RData")
+  
+  ############################################################################################################################################################################
+  ########2.A LOGISTIC MODEL TO DEVELOP XG MODEL
+  ############################################################################################################################################################################
+  
+  lm.cv.10 <- function(input, model.vars, extra.vars) {
+        
+        library(modelr); library(dplyr); library(purrr); library(broom); library(tidyr); library(ggplot2); library(MLmetrics)
+        set.seed(1234)  
+        
+        # Random Sort & Select Variables
+        input.cc <- input[sample(nrow(input)), names(input) %in% c(model.vars,extra.vars)]
+        
+        # Remove Nan, Inf
+        library(data.table)
+        for (j in 1:ncol(input.cc)) set(input.cc, which(is.infinite(input.cc[[j]])), j, NA)
+        for (j in 1:ncol(input.cc)) set(input.cc, which(is.nan(input.cc[[j]])), j, NA)
+        
+        input.cc <- input.cc[complete.cases(input.cc),]
+        model.data <- input.cc[names(input.cc) %in% c(model.vars)]
+        
+        print(sapply(sapply(model.data, unique),length))
+        
+        print(sapply(model.data, class))
+        
+        # Set folds
+        folds <- crossv_kfold(model.data, k = 10)
+        
+        # Run model over folds
+        model.folds <- folds %>% 
+            mutate(model = map(train, ~ glm(goal ~ ., data = ., family = "binomial", na.action = na.exclude)))
+        
+        # Predict test data
+        predicted <- model.folds %>% 
+                    mutate(predicted = map2(model, test, ~ augment(.x, newdata = .y, , type.predict = "response"))) %>% 
+                    unnest(predicted)
+        
+        #Calculate residual
+        predicted <- predicted %>% 
+          mutate(goal = (as.numeric(goal)-1),
+                 residual = .fitted - goal)
+        
+        # Brier Score
+        brierScore <- mean((predicted$.fitted-predicted$goal)^2)
+        print(brierScore)
+        
+        # Calculate r-squared
+        rs <- predicted %>%
+          group_by(.id) %>% 
+          summarise(
+            sst = sum((goal - mean(goal)) ^ 2), # Sum of Squares Total
+            sse = sum(residual ^ 2),          # Sum of Squares Residual/Error
+            r.squared = 1 - sse / sst         # Proportion of variance accounted for
+          )
+        
+        # Probability Cutoff
+        cutoff.roc.scores <- function(cut, prob, y) {
+          
+          yhat <- ifelse(prob > cut,1,0)
+          sensitivity <- length(which(yhat == 1 & y == 1)) / length(which(y == 1)) ##total true positives / total positives
+          specificity <- length(which(yhat == 0 & y == 0)) / length(which(y == 0)) ##total true negatives / total negatives
+          class.rate <- length(which(yhat == y)) / length(y)                      ## total true / total obs
+          distance <- sqrt( (sensitivity - 1)^2 + (specificity - 1)^2 )
+          out = t(as.matrix(c(cut,sensitivity, specificity, class.rate,distance)))
+          colnames(out) = c("cutoff","sensitivity", "specificity", "c.rate", "distance")
+          return(out)
+        }
+        
+        s = seq(.01,.99,length=100)
+        OUT = matrix(0,100,5)
+        for(i in 1:100) {
+          OUT[i,]=cutoff.roc.scores(s[i], predicted$.fitted, predicted$goal)
+          colnames(OUT) = c("cutoff","sensitivity", "specificity", "c.rate", "distance")
+        }
+        
+        class.rates <- as.data.frame(OUT)
+        
+        # Plot Classification Rate
+        class.plot <- class.rates %>%
+          as.data.frame() %>%
+          ggplot() +
+          geom_line(aes(x=cutoff, y=sensitivity,colour="Sensitivity")) +
+          geom_line(aes(x=cutoff, y=specificity,colour="Specificity")) +
+          geom_line(aes(x=cutoff, y=c.rate,colour="Classification Rate")) +
+          geom_line(aes(x=cutoff, y=distance,colour="Distance")) +
+          labs(x="Probability Cutoff", y="", title="Classification Rate", color="") +
+          theme(panel.background = element_blank())
+        
+        # Find Prob Cutoff at minimum distance
+        cutoff <- class.rates[class.rates$distance == min(class.rates$distance),"cutoff"]
+        print(cutoff)
+        
+        # Create confusion matrix
+        con.mat <- table(predicted$goal, predicted$.fitted > (median(cutoff)))
+        
+        # AUC
+        predicted <- predicted[order(predicted$.fitted, decreasing=TRUE), c(".fitted","goal")] 
+        predicted$shot <- 1
+        
+        AUC.curve <- data.frame(TPR=cumsum(predicted$goal)/sum(predicted$goal), 
+                                FPR=cumsum(!predicted$goal)/sum(!predicted$goal),
+                                Rand = cumsum(predicted$shot)/sum(predicted$shot),
+                                Target=predicted$goal) %>%
+                      ggplot() +
+                      geom_line(aes(x=FPR, y=TPR, color="TPR")) +
+                      geom_line(aes(x=FPR, y=Rand, color="Random")) +
+                      labs(x="FPR", y="TPR", title="AUC", color="") +
+                      annotate("text", x = 0.1, y = 0.9, hjust=0, label = paste0("@CrowdScoutSprts\nxG Model built using nhlscrapr\nAUC: ", round(AUC(predicted$.fitted, predicted$goal),2))) +
+                      theme(panel.background = element_blank())
+                                
+        # Gains Chart
+        gains.chart <- data.frame(Gain=cumsum(predicted$goal)/sum(predicted$goal), 
+                                  Random = cumsum(predicted$shot)/sum(predicted$shot)) %>%
+                    ggplot() +
+                    geom_line(aes(x=Random, y=Gain,colour="Model")) +
+                    geom_line(aes(x=Random, y=Random,colour="Random")) +
+                    labs(y="Cumulative Share of Goals", x="Cumulative Rank-Ordered Shots", title="Gains Chart", color="") +
+                    annotate("text", x = 0.1, y = 0.9, hjust=0, label = paste0("@CrowdScoutSprts\nxG Model built using nhlscrapr\nGains AUC: ", round(GainAUC(predicted$.fitted, predicted$goal),2))) +
+                    theme(panel.background = element_blank())
+                  
+        colnames(predicted) <- c("xG","goal","shot")
+        
+        return(list(model.folds, rs, class.plot, con.mat, cbind(predicted[1],input.cc), AUC.curve, gains.chart))
+  }      
+  
+  load("~/Documents/CWA/Hockey Data/shots.all.reg.RData")
+  
+  # Check variable distributions
+  shots.all.reg %>% ggplot(aes(x=shot.dist)) + geom_density()
+  shots.all.reg %>% ggplot(aes(x=shot.angle)) + geom_density()
+  shots.all.reg %>% ggplot(aes(x=Rebound.Angle.Second)) + geom_density()
+  shots.all.reg %>% ggplot(aes(x=time.last.off.shot)) + geom_density()
+  shots.all.reg %>% ggplot(aes(x=time.last.def.shot)) + geom_density()
+  shots.all.reg %>% ggplot(aes(x=regressed.shooting.skill.index)) + geom_density()
+  shots.all.reg %>% ggplot(aes(x=LN.Rebound.Angle.Distance)) + geom_density()
+  shots.all.reg %>% group_by(gamestate) %>% count()
+  shots.all.reg %>% group_by(last.off.shot) %>% count()
+  shots.all.reg %>% group_by(last.def.shot) %>% count()
+  shots.all.reg %>% group_by(last.off.give) %>% count()
+  shots.all.reg %>% group_by(last.def.give) %>% count()
+  shots.all.reg %>% group_by(last.neu.give) %>% count()
+  shots.all.reg %>% group_by(is.Rebound1) %>% count()
+  
+  
+  predicted.goal.model <- lm.cv.10(shots.all.reg,
+                                
+                                   c("goal",
+                                     "shot.dist",
+                                     "shot.dist.pow2",
+                                     "shot.dist.pow3",
+                                     
+                                  "shot.angle",
+                                  "shot.angle.pow2",
+                                  "shot.angle.pow3",
+                                  "is.Rush", 
+                                  "is.Rebound",
+                                  "LN.Rebound.Angle.Distance",
+                                  #"last.event.time", Bad Variable
+                                  "time.last.off.shot", "last.off.shot",
+                                  "time.last.def.shot", "last.def.shot",
+                                  "time.last.off.give", "last.off.give",
+                                  "time.last.def.give", "last.def.give",
+                                  "time.last.neu.give", "last.neu.give",
+                                  "shot.type","gamestate","regressed.shooting.skill.index",
+                                  "Player.Position2",#"Off.Hand.Shot", Bad Variable
+                                  "Handed.Class2"
+                                  
+                                  #"speed.last.event", Bad Variable
+                                 #"dist.last.event" Can't impute
+                                  ),  
+                      
+                                c("season","season2","gcode","period","seconds","ev.team","etype","awayteam","hometeam","away.G","home.G","Player",
+                                  "even.second","SA.Goalie","time.index","refdate","event","LS.shot","Shooter.Handedness",
+                                  "a1", "a2", "a3", "a4", "a5", "a6", "h1", "h2", "h3", "h4", "h5", "h6"))   
+  
+  # Summary best plot
+  best.model.no <- predicted.goal.model[[2]] %>% filter(r.squared == max(r.squared)) %>% select(.id) %>% as.character()
+  best.model <- predicted.goal.model[[1]]$model[[paste0(as.numeric(best.model.no))]] 
+  best.model %>% summary()
+  
+  # Confusion Matrix
+  predicted.goal.model[[4]]
+  #FALSE   TRUE
+  #0 664513 309169
+  #1  19368  46069
+  
+  
+  predicted.goal.model[[6]]
+  
+  predicted.goal.model[[7]]
+  
+  
+  # Classification Plot
+  predicted.goal.model[[3]]
+  
+  # R-squared
+  1 - (best.model$deviance / best.model$null.deviance)
+  #  0.1002869
+  # 0.1123704
+  
+  # Check xG and goals ratio
+  sum(as.numeric(predicted.goal.model[[5]]$goal)-1)
+  sum(predicted.goal.model[[5]]$xG)
+  # 59672
+  # 59672.47
+  
+  ## By Season compare xG to goals
+  predicted.goal.model[[5]] %>% 
+          group_by(season) %>% 
+          summarise(xG=sum(xG), goals=sum(as.numeric(goal)-1), 
+                    avg.shot=mean(shot.dist), avg.angle=mean(shot.angle), rebound=mean(as.numeric(is.Rebound)-1),
+                    regressed.shooting.skill.index = mean(regressed.shooting.skill.index)) %>%
+    ggplot() +
+    geom_line(aes(x=season, y=xG,group=1),color="blue") +
+    geom_line(aes(x=season, y=goals,group=1),color="green") +
+    theme(panel.background = element_blank()) +
+    labs(title="Actual Goals (Green) v Expected Goals (Blue) by Season", x="Season",y="")
+    
+  
+  ########################################################################
+  #########SCORE DATA AND ADJUST FOR REBOUNDS
+  ########################################################################
+  # Output Predicted
+  xG.raw <- predict(best.model, shots.all.reg, type='response')
+  
+  # Adjust for rebounds
+  scored.data.raw <- cbind(xG.raw,shots.all.reg)
+  
+  scored.data <- scored.data.raw %>%
+    arrange(season, gcode, seconds) %>%
+    mutate(shot.results.inRebound = ifelse(is.na(lead(period)),0,
+                                    ifelse(lead(period) == period & lead(gcode) == gcode & lead(is.Rebound) == 1, 1, 0)),
+           xG = xG.raw,
+           xG.team = ifelse(is.Rebound == 0, xG.raw,
+                     ifelse(is.Rebound == 1 & lag(is.Rebound) == 0, xG.raw * (1-lag(xG.raw)),
+                     ifelse(is.Rebound == 1 & lag(is.Rebound) == 1 & lag(is.Rebound,2) == 0,
+                                      xG.raw * (1-lag(xG.raw)) * (1-lag(xG.raw,2)),
+                     ifelse(is.Rebound == 1 & lag(is.Rebound) == 1 & lag(is.Rebound,2) == 1 & lag(is.Rebound,3) == 0,
+                                   xG.raw * (1-lag(xG.raw)) * (1-lag(xG.raw,2)) * (1-lag(xG.raw,3)),
+                     ifelse(is.Rebound == 1 & lag(is.Rebound) == 1 & lag(is.Rebound,2) == 1 & lag(is.Rebound,3) == 1 & lag(is.Rebound,4) == 0,
+                                   xG.raw * (1-lag(xG.raw)) * (1-lag(xG.raw,2)) * (1-lag(xG.raw,3)) * (1-lag(xG.raw,4)),
+                                   xG.raw * (1-lag(xG.raw)) * (1-lag(xG.raw,2)) * (1-lag(xG.raw,3)) * (1-lag(xG.raw,4))))))))
+  
+  ## Bucket Sh% and xSh%
+  scored.data %>% 
+    mutate(xG_bucket = round(xG,1)) %>%
+    group_by(xG_bucket) %>% 
+    summarise(xG_shot=sum(xG) / n(), goals_shot=sum(as.numeric(goal)-1) / n(), shots=n()) %>%
+    ggplot() +
+    #geom_boxplot(aes(x=xG_bucket, y=goals_shot, group= xG_bucket))
+    geom_point(aes(x=xG_bucket, y=goals_shot,size=shots))  
+  
+  #####################
+  ### Error Checks
+  #####################
+  
+  ### Log Loss
+  library(MLmetrics)
+  LogLoss(scored.data$xG,as.numeric(scored.data$goal)-1)
+  # 0.2036125
+  # 0.2583331
+  
+  error <- scored.data$xG-(as.numeric(scored.data$goal)-1)
+  
+  ## Brier Score - Base Line (goal <- 0): 0.08919192
+  mean(error^2)
+  # 0.05335231
+  # 0.07227214
+  
+  # Mean Absolute Error
+  mean(abs(error))
+  # 0.1065062
+  # 0.1438155
+  
+  # RMSE
+  sqrt(mean(error^2))
+  #0.2309812
+  #0.2688348
+  
+  
+  # View by season
+  scored.data %>% 
+    group_by(season2) %>% 
+    summarise(xG=sum(xG), goals=sum(as.numeric(goal)-1), xG.shot = xG / n(),
+              avg.dist=mean(shot.dist), avg.angle=mean(shot.angle), rebound=mean(as.numeric(is.Rebound)-1))
+  
+  # xG Distribution
+  scored.data %>%
+    ggplot() +
+    #geom_histogram(aes(xG), binwidth =  0.01)
+    geom_density(aes(xG, color = season)) +
+    theme(panel.background = element_blank()) +
+    labs(title="xG Distribution by Season", y="Density", x="xG Probability") +
+    scale_x_continuous(labels = scales::percent, limits = c(0, 1)) 
+  
+  ############################################################################################################################################################################
+  ########PREDICT REBOUND
+  ############################################################################################################################################################################
+  
+  rebound.model.data <- scored.data %>% filter(goal == 0)
+  
+  rebound.model <- glm(data = rebound.model.data,
+            shot.results.inRebound ~ xG + shot.dist + shot.dist.pow2 + shot.dist.pow3 + shot.angle + Off.Hand.Shot + shot.type + Player.Position2 +
+            time.last.off.shot + gamestate, family="binomial")
+  
+  
+  rebound.model %>% summary()
+  # R-squared
+  1 - (rebound.model$deviance / rebound.model$null.deviance)
+  #0.03356342
+  
+  ## Predict Shot Angle
+  pred.rebound <- predict(rebound.model, scored.data, type='response') 
+  
+  ## Combine Data and Impute
+  scored.data <- cbind(scored.data,pred.rebound) 
+  
+  ### Log Loss
+  library(MLmetrics)
+  LogLoss(scored.data$pred.rebound,scored.data$shot.results.inRebound)
+  #0.1520091
+  
+  rb.error <- scored.data$pred.rebound-scored.data$shot.results.inRebound
+  
+  ## Brier Score - Base Line (goal <- 0): 0.08919192
+  mean(rb.error^2)
+  # 0.03469594
+  
+  # Mean Absolute Error
+  mean(abs(rb.error))
+  # 0.07233442
+  
+  # RMSE
+  sqrt(mean(rb.error^2))
+  #0.1860957
+  ############################################################################################################################################################################
+  ########2.B SAVE MODEL AND SCORED SHOTS
+  ############################################################################################################################################################################
+  save(scored.data, file="~/Documents/CWA/Hockey Data/xG.scored.data.RData")
+  #save(best.model, file="~/Documents/CWA/Hockey Data/xG.best.model.RData")
+  
+  ############################################################################################################################################################################
+  ########3.A DEVELOP FUNCTIONS SELECT GOALIE-SEASON AND PLOT GOALIE XG SAVE SUCCESS
+  ############################################################################################################################################################################
+  
+  # Load Scored Data
+  load("~/Documents/CWA/Hockey Data/xG.scored.data.RData")
   
   # Return dataset of goalie-game level data for selected goalies and seasons
-  return(goalie.game)
+  QREAM.fun <- function(goalie, seasons=c("20072008","20082009","20092010","20102011","20112012",
+                                          "20122013","20132014","20142015","20152016","20162017"), shot.cut) {
+    
+    library(dplyr)
+    
+    # Select Goalies, Order by season, game, shot
+    goalie.set <- scored.data %>%
+          filter(SA.Goalie %in% goalie & season %in% seasons) 
+    
+    goalie.type <- goalie.set %>%
+          group_by(SA.Goalie, season, season2) %>%
+          summarise(shots = n())
+    
+    # Count cumulative numbers by goalie
+    goalie.set <- goalie.set %>%
+          mutate(Game.ID = as.character(gcode),
+                 SA = 1,
+                 GA = as.numeric(goalie.set$goal)-1) %>%
+          select(SA.Goalie, season,  season2, Game.ID, seconds, goal, xG, SA, GA) %>%
+          group_by(SA.Goalie) %>%
+          arrange(season, season2, Game.ID, seconds) %>%
+          #Cumulative Counts
+          mutate(cum.xG = cumsum(xG),
+                 cum.Goals = cumsum(GA),
+                 cum.Shots = cumsum(SA),
+                 QREAM = cum.xG - cum.Goals)
+    
+    # Calculate game shots
+    game.shots <- goalie.set %>%
+      group_by(SA.Goalie, season, season2, Game.ID) %>%
+      summarise(game.SA=sum(SA), 
+                game.GA=sum(GA),
+                game.xGA=sum(xG))
+    
+    # Keep last shot of each game and combine
+    goalie.game <- goalie.set %>%
+          group_by(SA.Goalie, season, season2, Game.ID) %>%
+          do(tail(., n=1)) %>%
+      left_join(game.shots, by=c("SA.Goalie","season","season2","Game.ID")) %>%
+      arrange(SA.Goalie, season, season2, Game.ID) %>%
+      select(SA.Goalie, season, season2, QREAM, Game.ID, game.SA, game.xGA, game.GA, cum.Shots, cum.Goals , cum.xG)
+    
+    # Return dataset of goalie-game level data for selected goalies and seasons
+    return(goalie.game)
+    
+  }
   
-}
-
-# Plot all goalies xG lift
-xG.plot.fun <- function(goalies, seasons, data) {
+  # Plot all goalies xG lift
+  xG.plot.fun <- function(goalies, seasons, data) {
+    
+    library(ggplot2); library(dplyr); library(ggrepel)
+    
+    # Subset goalies to highlight  
+    select.goalies <- data %>%
+        filter(SA.Goalie %in% goalies & season %in% seasons) %>%
+        arrange(SA.Goalie, season, season2, Game.ID)
+    
+    # Find last game to create label
+    last.game <- select.goalies %>%
+        group_by(SA.Goalie) %>%
+        do(tail(., n=1))
+    
+    # In-take all goalie-game level data and select season
+    data <- data %>%
+      filter(season %in% seasons)
   
-  library(ggplot2); library(dplyr); library(ggrepel)
+    # Overlay select goalies on all goalies limited to season  
+    ggplot(data=data, aes(x=cum.Shots,y=QREAM, group=SA.Goalie)) + 
+      geom_line(colour="grey") +
+      geom_line(data=select.goalies,size=1.5,aes(x=cum.Shots,y=QREAM,color=as.factor(select.goalies$SA.Goalie))) +
+      geom_line(data=select.goalies,size=0.3,aes(x=cum.Shots,y=QREAM)) +
+      geom_point(data=select.goalies,size=0.75,aes(x=cum.Shots,y=QREAM,shape=as.factor(select.goalies$season2))) + 
+      labs(shape ="Season") +
+      labs(color="Goalie") +
+      #theme(text = element_text(size=20)) +
+      annotate("segment",x=0,y=0,xend=max(data$cum.Shots),yend=0) +
+      labs(title="Goaltending Performance, Expected Goals Against - Actual Goals (QREAM*), All Situations\n*Quality Rules Everything Around Me") +
+      labs(x="Cumulative Shots Against", y="Expected Goals Against - Actual Goals") +
+      geom_text_repel(data=last.game,aes(x=cum.Shots,y=QREAM,label = SA.Goalie),
+                      point.padding = unit(0.5, "lines"),
+                      segment.color = 'black') +
+      annotate("text", x = 1, y = (max(data$QREAM) * 0.8), hjust=0, label = "@CrowdScoutSprts\nxG Model built using nhlscrapr\ngithub.com/C92Anderson/xG-Model") +
+      theme(panel.background = element_blank())
+  }
   
-  # Subset goalies to highlight  
-  select.goalies <- data %>%
-      filter(SA.Goalie %in% goalies & season %in% seasons) %>%
-      arrange(SA.Goalie, season, season2, Game.ID)
   
-  # Find last game to create label
-  last.game <- select.goalies %>%
-      group_by(SA.Goalie) %>%
-      do(tail(., n=1))
+  # Call function with goalie list and season, call cumulative counts and plot function
+  goalie.plot <- function(goalies, 
+                          seasons=c("20072008","20082009","20092010","20102011","20112012",
+                                    "20122013","20132014","20142015","20152016","20162017")) {
   
-  # In-take all goalie-game level data and select season
-  data <- data %>%
-    filter(season %in% seasons)
-
-  # Overlay select goalies on all goalies limited to season  
-  ggplot(data=data, aes(x=cum.Shots,y=QREAM, group=SA.Goalie)) + 
-    geom_line(colour="grey") +
-    geom_line(data=select.goalies,size=1.5,aes(x=cum.Shots,y=QREAM,color=as.factor(select.goalies$SA.Goalie))) +
-    geom_line(data=select.goalies,size=0.3,aes(x=cum.Shots,y=QREAM)) +
-    geom_point(data=select.goalies,size=0.75,aes(x=cum.Shots,y=QREAM,shape=as.factor(select.goalies$season2))) + 
-    labs(shape ="Season") +
-    labs(color="Goalie") +
-    #theme(text = element_text(size=20)) +
-    annotate("segment",x=0,y=0,xend=max(data$cum.Shots),yend=0) +
-    labs(title="Goaltending Performance, Expected Goals Against - Actual Goals (QREAM*), All Situations\n*Quality Rules Everything Around Me") +
-    labs(x="Cumulative Shots Against", y="Expected Goals Against - Actual Goals") +
-    geom_text_repel(data=last.game,aes(x=cum.Shots,y=QREAM,label = SA.Goalie),
-                    point.padding = unit(0.5, "lines"),
-                    segment.color = 'black') +
-    annotate("text", x = 1, y = (max(data$QREAM) * 0.8), hjust=0, label = "@CrowdScoutSprts\nxG Model built using nhlscrapr\ngithub.com/C92Anderson/xG-Model") +
-    theme(panel.background = element_blank())
-}
-
-
-# Call function with goalie list and season, call cumulative counts and plot function
-goalie.plot <- function(goalies, 
-                        seasons=c("20072008","20082009","20092010","20102011","20112012",
-                                  "20122013","20132014","20142015","20152016","20162017")) {
-
-      # List of goalies in season
-      all.goalie.list <- scored.data %>% 
-              filter(season %in% seasons & nchar(SA.Goalie) > 0) %>% 
-              distinct(SA.Goalie) %>% as.list()
-       
-      # Loop through each goalie and append
-      all.goalie.game <- plyr::rbind.fill(lapply(FUN=QREAM.fun,all.goalie.list, seasons))
-      
-      # Call function to plot games by season
-      p <- xG.plot.fun(goalies, seasons, all.goalie.game)
-      
-      return(list(p,all.goalie.game))
-      
-}
-
-############################################################################################################################################################################
-########3.B CALL FUNCTION FOR SELECT GOALIE-SEASONS AND PLOT
-############################################################################################################################################################################
-
+        # List of goalies in season
+        all.goalie.list <- scored.data %>% 
+                filter(season %in% seasons & nchar(SA.Goalie) > 0) %>% 
+                distinct(SA.Goalie) %>% as.list()
+         
+        # Loop through each goalie and append
+        all.goalie.game <- plyr::rbind.fill(lapply(FUN=QREAM.fun,all.goalie.list, seasons))
+        
+        # Call function to plot games by season
+        p <- xG.plot.fun(goalies, seasons, all.goalie.game)
+        
+        return(list(p,all.goalie.game))
+        
+  }
+  
+  ############################################################################################################################################################################
+  ########3.B CALL FUNCTION FOR SELECT GOALIE-SEASONS AND PLOT
+  ############################################################################################################################################################################
+  
+  goalie.plot(c("CAM TALBOT","PEKKA RINNE", "JAKE ALLEN","JOHN GIBSON","HENRIK LUNDQVIST","MARC-ANDRE FLEURY","BRADEN HOLTBY","CRAIG ANDERSON"),c("20162017"))[[1]]
+  
 goalie.plot(c("CAM TALBOT","MARTIN JONES", "COREY CRAWFORD","PEKKA RINNE", "DEVAN DUBNYK", "JAKE ALLEN",
               "BRIAN ELLIOTT","JOHN GIBSON"),
             c("20162017"))[[1]]
@@ -1164,6 +1166,16 @@ goalie.plot(c("CAM TALBOT","MARTIN JONES", "COREY CRAWFORD","PEKKA RINNE", "DEVA
 goalie.plot(c("CAREY PRICE","HENRIK LUNDQVIST","MARC-ANDRE FLEURY", "SERGEI BOBROVSKY", "FREDERIK ANDERSEN","BRADEN HOLTBY",
               "CRAIG ANDERSON","TUUKKA RASK"),
             c("20162017"))[[1]]
+
+goalie.plot(c("CAM TALBOT","PEKKA RINNE", "JAKE ALLEN","JOHN GIBSON"),c("20162017"))[[1]]
+
+
+goalie.plot(c("CAREY PRICE","HENRIK LUNDQVIST","MARC-ANDRE FLEURY", "SERGEI BOBROVSKY", "FREDERIK ANDERSEN","BRADEN HOLTBY",
+              "CRAIG ANDERSON","TUUKKA RASK"),
+            c("20162017"))[[1]]
+
+
+goalie.plot(c("CAM TALBOT"),c("20132014","20142015","20152016","20162017"))[[1]]
 
 goalie.plot(c("HENRIK LUNDQVIST","CORY SCHNEIDER","TIM THOMAS","ROBERTO LUONGO","RYAN MILLER","BRADEN HOLTBY","MIKE SMITH","KARI LEHTONEN","CRAIG ANDERSON",
               "STEVE MASON","MARC-ANDRE FLEURY","TUUKKA RASK","CAREY PRICE","CAM WARD","TOMAS VOKOUN","PEKKA RINNE","COREY CRAWFORD","JONATHAN QUICK"))[[1]]
@@ -1178,12 +1190,17 @@ goalie.plot(c("MARTIN JONES","THOMAS GREISS","COREY CRAWFORD","DEVAN DUBNYK","PE
 
 goalie.plot(c("EDDIE LACK","CAM WARD"),c("20162017"))[[1]]
 
-goalie.plot(c("STEVE MASON"))[[1]]
+
+goalie.plot(c("PEKKA RINNE", "JAKE ALLEN"),
+            c("20162017"))[[1]]
+
+
+goalie.plot(c("ROBERTO LUONGO"))[[1]]
 goalie.plot(c("STEVE MASON","MICHAL NEUVIRTH"),c("20142015","20152016","20162017"))[[1]]
 
-goalie.plot(c("MARC-ANDRE FLEURY","MATTHEW MURRAY"),c("20162017"))[[1]]
+goalie.plot(c("BEN BISHOP","BRIAN ELLIOTT","STEVE MASON","SCOTT DARLING","PHILIPP GRUBAUER"),c("20162017"))[[1]]
 
-#goalie.plot(c("TUUKKA RASK","BRADEN HOLTBY"),c("20152016","20162017"))[[1]]
+goalie.plot(c("TUUKKA RASK"),c("20162017"))[[1]]
 
 goalie.plot(c("FREDERIK ANDERSEN","JONATHAN BERNIER","JAMES REIMER","KARRI RAMO","JHONAS ENROTH"),c("20152016","20162017"))[[1]]
 
@@ -1232,14 +1249,14 @@ goalie.plot(c("DEVAN DUBNYK","JAKE ALLEN"),c("20162017"))[[1]]
 
 #goalie.plot(c("PETR MRAZEK","JIMMY HOWARD"),c("20112012","20122013","20132014","20142015","20152016","20162017"))[[1]]
 
-goalie.plot(c("PEKKA RINNE","JUUSE SAROS"),c("20162017"))[[1]]
+goalie.plot(c("PEKKA RINNE"),c("20142015","20152016","20162017"))[[1]]
 
-goalie.plot(c("ANTON KHUDOBIN","CARTER HUTTON"),c("20122013","20132014","20142015","20152016","20162017"))[[1]]
+goalie.plot(c("SCOTT DARLING"),c("20142015","20152016","20162017"))[[1]]
 
 goalie.plot(c("CAM TALBOT","SERGEI BOBROVSKY","BRADEN HOLTBY"),c("20152016","20162017"))[[1]]
-goalie.plot(c("CAM TALBOT"),c("20132014","20142015","20152016","20162017"))[[1]]
+goalie.plot(c("MARTIN JONES"),c("20132014","20142015"))[[1]]
 
-goalie.plot(c("STEVE MASON"),c("20132014","20142015","20152016","20162017"))[[1]]
+goalie.plot(c("EDDIE LACK"),c("20132014","20142015","20152016","20162017"))[[1]]
 
 goalie.plot(c("JAROSLAV HALAK","THOMAS GREISS","JEAN-FRANCOIS BERUBE"),c("20162017"))[[1]]
 
@@ -1274,7 +1291,7 @@ goalie.plot(c("JONATHAN QUICK","BEN BISHOP","CHAD JOHNSON","BRIAN ELLIOTT","PETE
 
 goalie.plot(c("STEVE MASON","MICHAL NEUVIRTH"),c("20142015","20152016","20162017"))[[1]]
 
-goalie.plot(c("EDDIE LACK", "CAM WARD"),c("20132014","20142015","20152016","20162017"))[[1]]
+goalie.plot(c("ANTTI RAANTA","SCOTT DARLING"),c("20132014","20142015","20152016","20162017"))[[1]]
 
 goalie.plot("BRIAN ELLIOTT")[[1]]
 
@@ -1372,6 +1389,12 @@ goalie.splits <- function(seasons, shot.min, var.set, desc) {
            Danger.Band = ifelse(xG <= quantile(scored.data$xG, c(.33, .66))[1], "Low Danger",
                                   ifelse(xG <= quantile(scored.data$xG, c(.33, .66))[2], "Middle Danger",
                                          "High Danger")),
+           Time.Band = ifelse(floor(seconds / 60) %in% c(0,1,20,21,40,41),"First2Minutes",
+                       ifelse(floor(seconds / 60) %in% c(18,19,38,39),"Last2Minutes-P1&P2",
+                       ifelse(floor(seconds / 60) %in% c(59,59),"Last2Minutes-P3",
+                        ifelse(period > 3,"Overtime",
+                                     "Other")))),
+           
            Rebound.Class = ifelse(is.Rebound == 0, 'First Shot',
                            ifelse(lag(pred.rebound) <= quantile(scored.data$pred.rebound, c(.33, .66))[1], "Poor Rebound",
                            ifelse(lag(pred.rebound) <= quantile(scored.data$pred.rebound, c(.33, .66))[2], "Possible Rebound",
@@ -1380,6 +1403,11 @@ goalie.splits <- function(seasons, shot.min, var.set, desc) {
            Long.Change = ifelse(Home.Period.Matrix %in% c("Home-P2","Home-P4"), "HomeLongChange",
                          ifelse(Home.Period.Matrix %in% c("Away-P2","Away-P4"), "AwayLongChange",
                                 "None")),
+           Shot.Class = ifelse(etype == "MISS","AllAttempts","OnNet"),
+           Shot.Class.Matrix = ifelse(Shot.Class =="AllAttempts" & Goalie.Rink == "Home", "AllAttempts-Home",
+                               ifelse(Shot.Class =="AllAttempts" & Goalie.Rink == "Away", "AllAttempts-Away",
+                               ifelse(Shot.Class =="OnNet" & Goalie.Rink == "Home", "OnNet-Home",
+                               ifelse(Shot.Class =="OnNet" & Goalie.Rink == "Away", "OnNet-Away","")))),
            Distance.Band.Strength = ifelse(Distance.Band == "Inner Band Distance" & gamestate == "Even", "Even Shot - Inner Band Distance",
                                     ifelse(Distance.Band == "Middle Band Distance" & gamestate == "Even", "Even Shot - Middle Band Distance", 
                                     ifelse(Distance.Band == "Outer Band Distance" & gamestate == "Even", "Even Shot - Outer Band Distance", 
@@ -1499,11 +1527,19 @@ plot <- goalie.season %>%
 
 }
 
+goalie.splits(c("20152016","20162017"), 1500, "Time.Band", "Period Time") [[1]]
+
+goalie.splits(c("20162017"), 1500, "Shot.Class.Matrix", "Shot Class & Venue") [[1]]
+
+
+goalie.splits(c("20152016","20162017"), 2500, "Side.Hand.Matrix", "Shot Side, Goalie & Shooter Handedness") [[1]]
+
 goalie.splits(c("20162017"), 750, "Rebound.Class", "Rebound Type") [[1]]
 goalie.splits(c("20152016","20162017"), 1500, "Rebound.Class", "Rebound Type") [[2]]
 
 
-goalie.splits(c("20162017"), 750, "Danger.Band", "Danger Bins") [[1]]
+goalie.splits(c("20162017"), 1000, "Danger.Band", "Danger Bins") [[1]]
+
 goalie.splits(c("20162017","20162017p"), 750, "Danger.Band", "Danger Bins") [[1]]
 
 
@@ -1776,7 +1812,8 @@ historical.goalie.season %>%
 
 # Historical - Current Goalies
 current.goalie.game.scores <- historical.goalie.season %>%
-  filter(season %in% c("20162017") & shots > 1550) %>%
+  #filter(season %in% c("20162017") & shots > 1550) %>%
+  filter(SA.Goalie %in% c("CAM TALBOT","PEKKA RINNE", "JAKE ALLEN","JOHN GIBSON","HENRIK LUNDQVIST","MATTHEW MURRAY","MARC-ANDRE FLEURY","BRADEN HOLTBY","CRAIG ANDERSON")) %>%
   ungroup()  %>%
   select(SA.Goalie) %>%
   distinct() %>%
@@ -1795,15 +1832,86 @@ current.goalie.game.scores <- historical.goalie.season %>%
             xG.Lift.per100Shots = xG.Lift / (sum(SA) / 100))
 
 current.goalie.game.scores %>%
- ggplot(aes(xG.Lift.per100Shots)) +
-  #geom_boxplot() +
-  geom_density() +
+      mutate(NetPositive = ifelse(xG.Lift.per100Shots > 0,1,0),
+             Excellent = ifelse(xG.Lift.per100Shots > 3,1,0),
+             Poor = ifelse(xG.Lift.per100Shots < -3,1,0)) %>%
+      group_by(SA.Goalie) %>%
+      summarise(NetPositive = mean(NetPositive),
+                Excellent = mean(Excellent),
+                Poor = mean(Poor)) %>%
+    melt() %>%
+    ggplot(aes(x=reorder(SA.Goalie,-value), y=value, group=variable, fill=variable)) +
+    geom_bar(stat = "identity",position = "dodge") +
+    coord_flip() +
+      scale_y_continuous(labels = scales::percent) +
+      theme(panel.background = element_blank()) +
+      labs(title="Playoff Goalies by Game Type, 2015-2017\nMeasured by Game xG - Actual Goals per 100 Shots, Net Positive > 0, Excellent > 3, Poor < -3\n@CrowdScoutSprts - xG Model built using nhlscrapr (github.com/C92Anderson/xG-Model)",
+           x="", y="Share of Total Games", fill="") 
+
+
+
+current.goalie.game.scores %>%
+ ggplot() +
+  geom_density(aes(x=xG.Lift.per100Shots,color=SA.Goalie),color="purple",alpha=.25) +
   facet_wrap(~SA.Goalie) +
   theme(panel.background = element_blank(),
+        legend.position="none",
         panel.grid.major.x = element_line(colour = "dark grey"),
         panel.grid.major.y = element_line(colour = "light grey", size = 0.1)) +
-  labs(title=paste0("Game-Level Goaltender xG Lift (*QREAM) Distribution - *Quality Rules Everything Around Me\nActive Goalies, Minimum 1500 Shots in 2016-17, 2015-2017\n@CrowdScoutSprts - xG Model built using nhlscrapr (github.com/C92Anderson/xG-Model)"),
+  labs(title=paste0("Game-Level Goaltender xG Lift (*QREAM) Distribution - *Quality Rules Everything Around Me\nPlayoff Goalies, 2015-2017\n@CrowdScoutSprts - xG Model built using nhlscrapr (github.com/C92Anderson/xG-Model)"), #Active Goalies, Minimum 1500 Shots in 2016-17, 2015-2017\n
        x="Game xG - Actual Goals per 100 Shots", y="Density", color = "Season", size = "Shots Against") 
+
+
+game.outcomes <- scored.data %>%
+          mutate(home.score = ifelse(ev.team == hometeam & goal == 1,1,0),
+                 away.score = ifelse(ev.team != hometeam & goal == 1,1,0)) %>%
+          group_by(season, gcode, hometeam, awayteam) %>%
+          summarise(home.score = sum(home.score), away.score = sum(away.score)) 
+
+goalie.games <- scored.data %>%
+    mutate(Goalie = sapply(strsplit(as.character(SA.Goalie), ' '), function(x) x[length(x)]),
+           SA = 1,
+           GA = as.numeric(goal)-1,
+           SA.Team = ifelse(ev.team == hometeam, awayteam, hometeam),
+           SA.Venue = ifelse(ev.team == hometeam, "Away", "Home")) %>%
+      group_by(SA.Goalie, SA.Venue, SA.Team, season, gcode) %>%
+      #Total xG and Goals
+      summarise(xGA = sum(xG),
+                GA = sum(GA),
+                xG.Lift = sum(xG) - sum(GA),
+                xG.Lift.per100Shots = xG.Lift / (sum(SA) / 100))
+
+goalie.games2 <- goalie.games %>%
+      group_by(SA.Venue, SA.Team, season, gcode) %>%
+      summarise(team.goalies = uniqueN(SA.Goalie)) %>%
+      inner_join(goalie.games, by = c("SA.Venue", "SA.Team", "season", "gcode")) %>%
+      filter(team.goalies < 2) %>%
+      left_join(game.outcomes, by = c("season", "gcode")) %>%
+      mutate(Goal.Support = ifelse(SA.Team == awayteam, away.score, home.score),
+              Potential.Steal = ifelse(xGA > (1 + Goal.Support),1,0),
+             Steal = ifelse(Potential.Steal == 1 & GA < Goal.Support, 1, 0))
+
+goalie.steals <- goalie.games2 %>%
+          group_by(SA.Goalie) %>%
+          summarise(Games = uniqueN(gcode),
+                    Potential.Steal = sum(Potential.Steal),
+                    Steal = sum(Steal),
+                    Steal.Share = sum(Steal) / sum(Potential.Steal))
+
+goalie.steals  %>%
+  #filter(season=="20162017") %>%
+  mutate(Goalie = sapply(strsplit(as.character(SA.Goalie), ' '), function(x) x[length(x)]),
+         GoalieYr = ifelse(Steal > 5 | Potential.Steal > 25,paste0(Goalie),"")) %>%
+    ggplot() +
+  geom_point(aes(x=Potential.Steal,y=Steal,size=Games, color=Steal.Share)) +
+  geom_text_repel(aes(x=Potential.Steal,y=Steal,label=GoalieYr)) +
+  #geom_text(aes(x=Potential.Steal,y=Steal,label=GoalieYr,size=Games), angle=45) +
+  scale_color_gradient(high="red",low="blue") +
+  geom_smooth(aes(x=Potential.Steal, y=Steal), size = 1, colour = "grey", se = FALSE, stat = "smooth", method = "lm") +
+  labs(title="Goalie Games Stolen* Career - *Win With Expected Goals Against At Least 1 Greater Than Goal Support For, xGA >= GF + 1\n@CrowdScoutSprts - xG Model built using nhlscrapr (github.com/C92Anderson/xG-Model)") +
+  labs(x="Potential Stolen Games (Expected Goals Against At Least 1 Greater Than Goal Support For)",
+       y="Stolen Games (Win With Expected Goals Against At Least 1 Greater Than Goal Support For)",size="Complete Games",color="Games Stole as Share of Total") +
+  theme(panel.background = element_blank()) 
 
 
 ############################################################################################################################################################################
@@ -2015,9 +2123,8 @@ playoffs17 %>%
   annotate("text", x=max(playoffs17$Goals) * 0.2, y=max(playoffs17$Goals) * 0.8, hjust=0, label = "Good", size=3) +
   annotate("text", x=max(playoffs17$Goals) * 0.8, y=max(playoffs17$Goals) * 0.2, hjust=0, label = "Bad", size=3) +
   
-  labs(title=paste0("Goaltending Performance (QREAM*) 2016-17 Playoffs - *Quality Rules Everything Around Me\n@CrowdScoutSprts - xG Model built using nhlscrapr (github.com/C92Anderson/xG-Model)"),
+  labs(title=paste0("Goaltending Performance (QREAM*) 2017 Playoffs - *Quality Rules Everything Around Me\n@CrowdScoutSprts - xG Model built using nhlscrapr (github.com/C92Anderson/xG-Model)"),
        x="Actual Goals Against", y="Expected Goals Against", color="Wins Added Over Average\n(Goals Prevented Over xG\nConverted to Points, 0.36pts / GA) ", size = "Playoff Shots")
-
 
 ############################################################################################################################################################################
 ########5.A PLAYER SHOOTING SKILL
@@ -2179,6 +2286,8 @@ player.stats <- scored.data %>%
       reshape2::melt(id.vars = c("Player", "season")) %>%
       ggplot() +
       geom_bar(aes(x=season, y=value, group=variable,fill=variable), position="dodge", stat="identity") +
+      geom_text(data=player.stats,aes(x=season, y=min(player.stats$xG) / 2,
+                                      label=paste0(round(mean.shot.dist,1),"ft\n",round(mean.shot.angle,1),"°"))) + 
       labs(color="") +
       #labs(title=paste0(player, " xG and GF by Season")) +
       labs(x="Season", y="Individual xG and GF", fill="") +
@@ -2192,17 +2301,29 @@ player.stats <- scored.data %>%
 }
 
 
-xG_v_GF_pershot("TODD BERTUZZI")
-xG_v_GF_pershot("MATTHEW TKACHUK")
+
+xG_v_GF_pershot("AUSTON MATTHEWS")
 
 xG_v_GF_pershot("MAGNUS PAAJARVI")
 
+xG_v_GF_pershot("TODD BERTUZZI")
+
+
 xG_v_GF_pershot("RICHARD PANIK")
-xG_v_GF_pershot("ALEXANDER OVECHKIN")
+
+xG_v_GF_pershot("ALEX OVECHKIN")
+
+xG_v_GF_pershot("ALEX TANGUAY")
+
 xG_v_GF_pershot("STEVEN STAMKOS")
+
 xG_v_GF_pershot("BRAD BOYES")
+
 xG_v_GF_pershot("MITCHELL MARNER")
 
+xG_v_GF_pershot("SHAWN THORNTON")
+
+xG_v_GF_pershot("JORDAN EBERLE")
 
 ############################################################################################################################################################################
 ########5.C TEAM SHOOTER SKILL (NO CHART)
@@ -2344,7 +2465,7 @@ team.story <- function(team, year) {
 ########6.B ALL TEAM XG STORIES
 ############################################################################################################################################################################
 
-team.story("OTT", "20162017")[[1]]
+team.story("CAR", "20162017")[[1]]
 
 team.story2 <- function(team, season) { 
   table <- team.story(team, season)[[2]]
@@ -2411,3 +2532,25 @@ multiplot(variable.splits.compare("Even Strength xGF - xGA"),
   variable.splits.compare("Special Teams xGF - xGA"),
   variable.splits.compare("Goaltending Lift (xGA - GA)"),
 variable.splits.compare("Shooting Lift (GF - xGF)"),cols = 1)
+
+
+
+scored.data %>%
+    filter(season2 %in% c("20152016","20162017")) %>%
+    mutate(SA.Team = ifelse(ev.team == hometeam, awayteam, hometeam),
+           gamestate = ifelse(gamestate %in% c("5v4","PP.2p.SA","6v5","4v3"), "PK",
+                              ifelse(gamestate %in% c("5v5","4v4","3v3"), "Even",
+                                     ifelse(gamestate %in% c("SH.SA"), "SH","U")))) %>%
+    group_by(SA.Team, season2) %>%
+    summarise(xG = sum(xG.team)) %>%
+    dcast(SA.Team ~ season2) %>%
+    ggplot() +
+    geom_point(aes(x=`20152016` / 1, y=`20162017` / 1)) +
+   geom_text_repel(aes(x=`20152016` / 1, y=`20162017` / 1, label=SA.Team)) +
+   annotate("segment",x=175,y=175,xend=230,yend=230) +
+   theme(panel.background = element_blank()) +
+   labs(title="All Situations Expected Goals Against\n2015-16 vs 2016-17",
+    x="All Situations Expected Goals Against 2015-16", y="All Situations Expected Goals Against 2016-17")
+
+
+
