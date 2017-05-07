@@ -13,7 +13,7 @@ xG_Model_nhlscrapr.R
 
  CREATED BY:     Cole Anderson (cole92anderson@gmail.com)
 
- LAST UPDATED:   12/07/2016
+ LAST UPDATED:   05/07/2016
 
  PROCESS:   
  
@@ -35,12 +35,28 @@ xG_Forecasting.R
 
  CREATED BY:     Cole Anderson (cole92anderson@gmail.com)
 
- LAST UPDATED:   12/07/2016
+ LAST UPDATED:   05/07/2016
 
  PROCESS: 
  
  0 - SYSTEM PREP AND LOAD DATA FROM xG_Model_nhlscrapr.R
  1 - CREATE GOALIE SEASON, CAREER DATASET
  2 - ATTEMPT TO PREDICT GOALIE PERFORMANCE
+
+############################################################################################################################################################################
+
+BayesGoalies.R
+
+############################################################################################################################################################################
+
+# PROJECT:        Use xG Model & Rebound Model for Bayesian Goaltender Analysis
+
+PURPOSE:        Create Expected Goal Prior & Compare to Posterior Performance. 
+
+CREATED BY:     Cole Anderson (cole92anderson@gmail.com)
+
+LAST UPDATED:   05/07/2016
+
+
 
 ############################################################################################################################################################################
