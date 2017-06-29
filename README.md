@@ -13,7 +13,7 @@ xG_Model_nhlscrapr.R
 
  CREATED BY:     Cole Anderson (cole92anderson@gmail.com)
 
- LAST UPDATED:   05/07/2016
+ LAST UPDATED:   05/07/2017
 
  PROCESS:   
  
@@ -35,7 +35,7 @@ xG_Forecasting.R
 
  CREATED BY:     Cole Anderson (cole92anderson@gmail.com)
 
- LAST UPDATED:   05/07/2016
+ LAST UPDATED:   05/07/2017
 
  PROCESS: 
  
@@ -55,7 +55,7 @@ PURPOSE:        Create Expected Goal Prior & Compare to Posterior Performance.
 
 CREATED BY:     Cole Anderson (cole92anderson@gmail.com)
 
-LAST UPDATED:   05/07/2016
+LAST UPDATED:   05/07/2017
 
 
 
