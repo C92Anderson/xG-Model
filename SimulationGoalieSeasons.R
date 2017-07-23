@@ -1,7 +1,7 @@
 ############################################################################################################################################################################
 ######## 0.A SYSTEM PREP
 ############################################################################################################################################################################
-library(ggplot2);library(dplyr); library(DataCombine)
+library(ggplot2);library(dplyr); library(DataCombine); library(data.table)
 library(glmnet); library(nhlscrapr); library(caret); library(RMySQL); library(readr); library(reshape2); library(rvest)
 library(twitteR);library(httr)
 
@@ -31,6 +31,7 @@ replacement.check <- scored.data.wtype %>% group_by(SA.Goalie) %>% summarise(car
 
 season.sims <- function(goalies, seasons = c("20072008","20082009","20092010","20102011","20112012",
                                           "20122013","20132014","20142015","20152016","20162017"), sims) {
+  
   
   season.shots <- scored.data.wtype %>%
     filter(SA.Goalie %in% goalies & season2 %in% seasons) %>%
@@ -89,25 +90,26 @@ season.sims <- function(goalies, seasons = c("20072008","20082009","20092010","2
   colnames(sim.QREAM.100) <- c(unique(season.shots$Goalie.Year))
   
   sim.QREAM.1002 <- sim.QREAM.100 %>% melt()
+  colnames(sim.QREAM.1002) <- c("SeasonId", "GoalieSeason","value")
   
   ## Create histogram data
   totals <- as.data.frame(sim.QREAM.1002) %>% 
     mutate(outcome = sim.QREAM.100) %>%
-    group_by(Var2, outcome) %>%
+    group_by(GoalieSeason, outcome) %>%
     summarise(share = n() / sims)
 
   ## Plot histogram
   p1 <- sim.QREAM.1002 %>%
-    mutate(SA.Goalie = substr(Var2,1,length(Var2)-2),
-           Season = substr(Var2,length(Var2)-1,length(Var2))) %>%
+    mutate(SA.Goalie = substr(GoalieSeason,1,length(GoalieSeason)-2),
+           Season = substr(GoalieSeason,length(GoalieSeason)-1,length(GoalieSeason))) %>%
     ggplot() +
-    geom_density(aes(x=value, color=Var2, group=Var2, linetype = Var2, fill=Var2),
+    annotate("segment", x=0, xend=0, y=0, yend=0.2, color="grey", size=1.5) +
+    geom_density(aes(x=value, color=GoalieSeason, group=GoalieSeason, linetype = GoalieSeason, fill=GoalieSeason),
                   alpha = 0.15, size = 1.25, stat = "density", position = "identity") +
-    labs(title=paste0(paste(goalies,sep="", collapse=", ")," ",paste(seasons,sep="", collapse=", ")," Performance\nSimulated Expected Goals - Actual Goals Against per 100 Shots Against - ",sims, " Simulations\n@CrowdScoutSprts - xG Model built using nhlscrapr (github.com/C92Anderson/xG-Model)"),
+    labs(title=paste0(paste(goalies,sep="", collapse=", ")," ",paste(seasons,sep="", collapse=", ")," Performance\nSimulated Expected Rebounds & Goals - Actual Goals Against per 100 Shots Against - ",sims, " Simulations\n@CrowdScoutSprts - xG Model built using nhlscrapr (github.com/C92Anderson/xG-Model)"),
          x="Simulated Expected Goals - Actual Goals per 100 Shots Against\n(Further right represents outcomes where goalie performed better)", 
          y="Density\n(Higher values represent greater likelihood of outcome)", color="Goalie Season",
          linetype = "Goalie Season", fill="Goalie Season") +
-    annotate("segment", x=0, xend=0, y=0, yend=0.5, color="grey") +
     theme(panel.background = element_blank()) #,legend.position = "none")
   
 
@@ -116,30 +118,34 @@ season.sims <- function(goalies, seasons = c("20072008","20082009","20092010","2
 }
 
 
-playoffs <- season.sims(c("CAM TALBOT","PEKKA RINNE", "JAKE ALLEN","JOHN GIBSON","HENRIK LUNDQVIST","MARC-ANDRE FLEURY","BRADEN HOLTBY","CRAIG ANDERSON")
+playoffs <- season.sims(c("PEKKA RINNE","MATTHEW MURRAY")
                         ,c("20162017p"),100)
 playoffs[[1]]
 
+lehner <- season.sims(c("ROBIN LEHNER"),c("20132014","20142015","20152016","20162017"),100)
+lehner[[1]]
 
-backups <- season.sims(c("SCOTT DARLING","ANTTI RAANTA","AARON DELL"),c("20152016","20162017"),1000)
+
+backups <- season.sims(c("STEVE MASON","ANTTI RAANTA","BRIAN ELLIOTT","SCOTT DARLING","PHILIPP GRUBAUER",
+                         "PETR MRAZEK","ROBIN LEHNER","MIKE SMITH","AARON DELL"),c("20162017"),500)
 backups[[1]]
 
-darling <- season.sims(c("SCOTT DARLING"),c("20142015","20152016","20162017"),1000)
+darling <- season.sims(c("HENRIK LUNDQVIST","ANTTI RAANTA"),c("20152016","20162017"),100)
 darling[[1]]
 
 
 comrie.gillies <- season.sims(c("JON GILLIES","ERIC COMRIE"),"20162017",500)
 comrie.gillies[[1]]
 
-trade <- season.sims(c("PHILIPP GRUBAUER"),c("20152016","20162017"),1000)
+trade <- season.sims(c("PHILIPP GRUBAUER","AARON DELL"),c("20152016","20162017"),1000)
 trade[[1]]
 
-top3 <- season.sims(c("SERGEI BOBROVSKY","BRADEN HOLTBY","CAM TALBOT","CAREY PRICE"),"20162017",10000)
-
+top3 <- season.sims(c("SERGEI BOBROVSKY","BRADEN HOLTBY","CAREY PRICE"),"20162017",100)
+top3[[1]]
 next3 <- season.sims(c("HENRIK LUNDQVIST","CORY SCHNEIDER","TUUKKA RASK"),"20162017",10000)
 
-gru <- season.sims(c("PHILIPP GRUBAUER"),c("20132014","20142015","20152016","20162017"),1000)
-
+lack <- season.sims(c("EDDIE LACK"),c("20132014","20142015","20152016","20162017"),1000)
+lack[[1]]
 ufa <- season.sims(c("BEN BISHOP","BRIAN ELLIOTT","STEVE MASON"),"20162017",10000)
 
 draft12 <- season.sims(c("MATTHEW MURRAY","FREDERIK ANDERSEN","ANDREI VASILEVSKIY","CONNOR HELLEBUYCK"),"20162017",10000)
@@ -176,7 +182,7 @@ replacement[[1]]
 
 talbot <- season.sims(c("CAM TALBOT"),c("20132014","20142015","20152016","20162017"),50)
 
-luongo <- season.sims(c("ROBERTO LUONGO"),,50)
+season.sims(c("JOONAS KORPISALO","PHILIPP GRUBAUER","ANTTI RAANTA"),,50)[[1]]
 
 timt <- season.sims(c("TIM THOMAS"),c("20072008","20082009","20092010","20102011","20112012",
                       "20122013","20132014"),50)
@@ -194,7 +200,7 @@ talbot15[[1]]
 jones15 <- season.sims(c("MARTIN JONES"),c("20132014","20142015"),50)
 jones15[[1]]
 
-raanta <- season.sims(c("ANTTI RAANTA"),c("20132014","20142015","20152016","20162017"),50)
+raanta <- season.sims(c("ANTTI RAANTA"),c("20142015","20152016","20162017"),50)
 
 
 cgy <- season.sims(c("CHAD JOHNSON","BRIAN ELLIOTT","JON GILLIES"),c("20152016","20162017"),10)

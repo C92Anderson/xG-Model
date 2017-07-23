@@ -18,8 +18,9 @@
 ######## 0.A SYSTEM PREP
 ############################################################################################################################################################################
 library(ggplot2);library(dplyr); library(DataCombine)
-library(glmnet); library(nhlscrapr); library(caret)
-getwd()
+library(glmnet); library(nhlscrapr); library(caret);
+library(fpp)
+
 load("~/Documents/CWA/Hockey Data/roster.Rda")
 
 ############################################################################################################################################################################
@@ -27,13 +28,16 @@ load("~/Documents/CWA/Hockey Data/roster.Rda")
 ############################################################################################################################################################################
 # Load scored data
 load("~/Documents/CWA/Hockey Data/xG.scored.data.RData")
+load("~/Documents/CWA/Hockey Data/xG.allattempts.scored.data.RData")
 
 # Prepare all shots against goaltenders in shot sample
 goalie.shots <- scored.data %>%
   mutate(Game.ID = as.character(gcode),
          SA = 1,
-         GA = as.numeric(goal)-1) %>%
-  select(SA.Goalie, season, Game.ID, seconds, goal, xG, SA, GA, even.second) 
+         GA = as.numeric(goal)-1,
+         NonRebound.Shot = ifelse(is.Rebound == 0, 1,0),
+         xG.FirstShot = ifelse(is.Rebound == 0, xG, 0)) %>%
+  select(SA.Goalie, season, Game.ID, seconds, goal, xG, SA, GA, even.second, NonRebound.Shot, xG.FirstShot, pred.rebound) 
 
 # Calculate season-level xG Saved per 100 shots
 goalie.game <- goalie.shots %>%
@@ -109,12 +113,12 @@ goalie.season.plot <- function(goalies){
 
 }
 
-goalie.season.plot(c("BRADEN HOLTBY"))
-goalie.season.plot(c("COREY CRAWFORD"))
-goalie.season.plot(c("CORY SCHNEIDER"))
-goalie.season.plot(c("MARTIN BRODEUR"))
-goalie.season.plot(c("JONAS GUSTAVSSON"))
-goalie.season.plot(c("MIIKKA KIPRUSOFF"))
+#goalie.season.plot(c("BRADEN HOLTBY"))
+#goalie.season.plot(c("COREY CRAWFORD"))
+#goalie.season.plot(c("CORY SCHNEIDER"))
+#goalie.season.plot(c("MARTIN BRODEUR"))
+#goalie.season.plot(c("JONAS GUSTAVSSON"))
+#goalie.season.plot(c("MIIKKA KIPRUSOFF"))
 
 
 ############################################################################################################################################################################
@@ -155,16 +159,24 @@ goalie.season.roster %>%
 library(reshape)
 set.seed(123434)
 
+rebound.goal.probability <- 0.2560365
+
 goalie.season.splits <- goalie.shots %>%
  group_by(SA.Goalie, season, even.second) %>%
   summarise(total.xG = sum(xG),
             total.Goals = sum(GA),
-            total.Shots = sum(SA)) %>%
+            total.Shots = sum(SA),
+            xRBA = sum(pred.rebound), 
+            NonRebound.Shots = sum(NonRebound.Shot),
+            xG.FirstShot = sum(xG.FirstShot)) %>%
    mutate(game.xGS.100 = (total.xG - total.Goals) / (total.Shots / 100),
-         save.pecentage = (total.Shots - total.Goals) / total.Shots) %>%
+         save.pecentage = (total.Shots - total.Goals) / total.Shots,
+         game.xGxR.100 = ((xG.FirstShot + (xRBA * rebound.goal.probability) - total.Goals) / (NonRebound.Shots / 100))) %>%
   group_by(SA.Goalie, season) %>%
   summarise(even.xGS.100 = max(ifelse(even.second == 1, game.xGS.100,-100)),
             odd.xGS.100 = max(ifelse(even.second == 0, game.xGS.100,-100)),
+            even.game.xGxR.100 = max(ifelse(even.second == 1, game.xGxR.100,-100)),
+            odd.game.xGxR.100 = max(ifelse(even.second == 0, game.xGxR.100,-100)),
             even.save.pecentage = max(ifelse(even.second == 1, save.pecentage,-100)),
             odd.save.pecentage = max(ifelse(even.second == 0, save.pecentage,-100)),
             total.Shots = sum(total.Shots)) %>%
@@ -174,19 +186,32 @@ goalie.season.splits <- goalie.shots %>%
 # SOX (Saves Over xG) 
 library(boot)
 SOX.corr <- corr(as.matrix(goalie.season.splits[c("even.xGS.100", "odd.xGS.100")]), w = (goalie.season.splits$total.Shots))
+SROX.corr <- corr(as.matrix(goalie.season.splits[c("even.game.xGxR.100", "odd.game.xGxR.100")]), w = (goalie.season.splits$total.Shots))
 svP.corr <- corr(as.matrix(goalie.season.splits[c("even.save.pecentage", "odd.save.pecentage")]), w = (goalie.season.splits$total.Shots))
 
 # Plot Sox
 qream.split <- goalie.season.splits %>%
-        ggplot() +
-        geom_point(aes(x=even.xGS.100,y=odd.xGS.100,size=total.Shots, color=total.Shots)) +
-        scale_color_gradient2(low="light grey",high="blue", guide = FALSE) +
-        #geom_smooth(aes(x=even.xGS.100, y=odd.xGS.100), size = 1.5, colour = "black", se = TRUE, stat = "smooth", method = "lm")
-        annotate("segment", x = -5, y = -5, xend = 5, yend = 5) +
-        annotate("text", x = -4, y = 4, hjust = 0, label = paste0("Intra-season correlation: ", round(SOX.corr,2))) +
-        labs(title="Intra-Season QREAM Correlation - Expected Goals Against - Actual Goals Against per 100 Shots\n@CrowdScoutSprts - github.com/C92Anderson/xG-Model") +
-        labs(x="Even Second QREAM / 100 Shots",y="Odd Second QREAM / 100 Shots",size="Shots Against") +
-        theme(panel.background = element_blank()) 
+  ggplot() +
+  geom_point(aes(x=even.xGS.100,y=odd.xGS.100,size=total.Shots, color=total.Shots)) +
+  scale_color_gradient2(low="light grey",high="blue", guide = FALSE) +
+  #geom_smooth(aes(x=even.xGS.100, y=odd.xGS.100), size = 1.5, colour = "black", se = TRUE, stat = "smooth", method = "lm")
+  annotate("segment", x = -5, y = -5, xend = 5, yend = 5) +
+  annotate("text", x = -4, y = 4, hjust = 0, label = paste0("Intra-season correlation: ", round(SOX.corr,2))) +
+  labs(title="Intra-Season QREAM Correlation - Expected Goals Against - Actual Goals Against per 100 Shots\n@CrowdScoutSprts - github.com/C92Anderson/xG-Model") +
+  labs(x="Even Second Expected Goals Against - Actual Goals Against per 100 Shots",y="Odd Second Expected Goals Against - Actual Goals Against per 100 Shots",size="Shots Against") +
+  theme(panel.background = element_blank()) 
+
+# Plot Sox
+qream.rebound.split <- goalie.season.splits %>%
+  ggplot() +
+  geom_point(aes(x=even.xGS.100,y=odd.xGS.100,size=total.Shots, color=total.Shots)) +
+  scale_color_gradient2(low="light grey",high="blue", guide = FALSE) +
+  #geom_smooth(aes(x=even.xGS.100, y=odd.xGS.100), size = 1.5, colour = "black", se = TRUE, stat = "smooth", method = "lm")
+  annotate("segment", x = -5, y = -5, xend = 5, yend = 5) +
+  annotate("text", x = -4, y = 4, hjust = 0, label = paste0("Intra-season correlation: ", round(SROX.corr,2))) +
+  labs(title="Intra-Season Correlation - Expected Goals Against - Actual Goals Against per 100 Shots\n@CrowdScoutSprts - github.com/C92Anderson/xG-Model") +
+  labs(x="Even Second Expected Goals Against - Actual Goals Against per 100 Shots",y="Odd Second Expected Goals Against - Actual Goals Against per 100 Shots",size="Shots Against") +
+  theme(panel.background = element_blank()) 
 
 # Plot Save Percentage
 svp.split <- goalie.season.splits %>%
@@ -479,3 +504,14 @@ chunk.glm.df %>%
   theme(panel.background = element_blank())
 
 
+############################################################################################################################################################################
+######## 3.A FORECASTING PRINCIPLES
+############################################################################################################################################################################
+
+murray <- scored.data %>% 
+      filter(SA.Goalie == "MATTHEW MURRAY") %>% 
+      group_by(SA.Goalie, season, gcode, refdate) %>%
+      summarise(xGA = sum(xG),
+                GA = sum(as.numeric(goal)-1)) 
+
+rwf()
