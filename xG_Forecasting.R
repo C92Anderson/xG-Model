@@ -79,6 +79,7 @@ goalie.season %>%
   filter(season == "20162017" & (season.Shots > 750)) %>%
   arrange(desc(xG.shot)) %>%
   ggplot() +
+  theme_standard() +
   geom_segment(aes(x = reorder(SA.Goalie,-xG.shot), 
                    y = xG.shot, xend = reorder(SA.Goalie,-xG.shot), yend = G.shot, colour = (xG.shot - G.shot)),size=2) +
   scale_color_gradient2(low="firebrick2",mid="grey50",high="forestgreen") +
