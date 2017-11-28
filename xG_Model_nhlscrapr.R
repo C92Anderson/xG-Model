@@ -55,10 +55,10 @@ skater.name.xwalk <- read_csv("https://raw.githubusercontent.com/C92Anderson/xG-
 # Function to pull games from nhlscrapr from current season
 game.pull <- function(game) {
   
-  url.len <- length(try(read_html(print(paste0("https://statsapi.web.nhl.com/api/v1/game/20160",game,"/feed/live?site=en_nhl")))))
+  url.len <- length(try(read_html(print(paste0("https://statsapi.web.nhl.com/api/v1/game/20170",game,"/feed/live?site=en_nhl")))))
   
   if(url.len > 1) {
-    game <- retrieve.game(season="20162017", gcode=game)[[1]]
+    game <- retrieve.game(season="20172018", gcode=game)[[1]]
     if(length(game) > 0) { 
       return(game)
     }
@@ -69,41 +69,38 @@ game.pull <- function(game) {
 # Check data and update based on current game (replace to most current gcode)
 current.data <- function(game.list) {
 ###load current data
-  #load("/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.17.RData")
+  #load("/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.18.RData")
   
-  last.data.game <- 30100 # max(as.character(na.omit(game.events.17$gcode)))
+  #last.data.game <- 20001 # max(as.character(na.omit(game.events.17$gcode)))
   
-  game.list.17 <- game.list #as.character(last.data.game:last.game)
-  print(game.list.17)
-  game.events.17 <- data.frame()
-  new.game.events.17 <- plyr::rbind.fill(lapply(FUN=game.pull,game.list.17))
+  game.list.18 <- game.list #as.character(last.data.game:last.game)
+  print(game.list.18)
+  game.events.18 <- data.frame()
+  new.game.events.18 <- plyr::rbind.fill(lapply(FUN=game.pull,game.list.18))
   
-  game.events.17 <- plyr::rbind.fill(game.events.17, new.game.events.17)
+  game.events.18 <- plyr::rbind.fill(game.events.18, new.game.events.18)
 
   
-  game.events.17$refdate[is.na(game.events.17$refdate)]  <- 0
+  game.events.18$refdate[is.na(game.events.18$refdate)]  <- 0
 
-  return(game.events.17) 
+  return(game.events.18) 
 }
 
 # Playoff games 
-po.games.17 <- as.character(c(30151:30154, 30161:30165, 30171:30174, 30181:30186, 30111:30116, 30121:30126, 30131:30136, 30141:30145,
-                              30241:30247, 30231:30236, 30211:30216, 30221:30227,
-                              30321:30327, 30311: 30317,
-                              30411:30417))
+games.18 <- as.character(c(20001:20039))
 
 # Update with last game from current season
-game.events.17playoffs <- current.data(po.games.17)
+game.events.18 <- current.data(games.18)
 
 # Clean
-game.events.17playoffs <- game.events.17playoffs %>% dplyr::distinct() %>% filter(!is.na(gcode))
+game.events.18 <- game.events.18 %>% dplyr::distinct() %>% filter(!is.na(gcode))
 
 # Check
-recent.season.check <- game.events.17playoffs %>% group_by(gcode) %>% summarise(cnt = n())
+recent.season.check <- game.events.18 %>% group_by(gcode) %>% summarise(cnt = n())
 print(dim(recent.season.check))
 print(tail(recent.season.check))
 
-save(game.events.17playoffs, file="/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.17playoffs.RData")
+save(game.events.18, file="/Users/colander1/Documents/CWA/nhlscrapr-master/game.events.18.RData")
 
 load("~/Documents/CWA/nhlscrapr-master/game.events.08.RData")
 load("~/Documents/CWA/nhlscrapr-master/game.events.09.RData")
@@ -120,7 +117,7 @@ load("~/Documents/CWA/nhlscrapr-master/game.events.17playoffs.RData")
 # Combine season data
 pbp.all.raw <- plyr::rbind.fill(game.events.08,game.events.09,game.events.10,game.events.11,
                             game.events.12,game.events.13,game.events.14,game.events.15,
-                            game.events.16,game.events.17,game.events.17playoffs)
+                            game.events.16,game.events.17,game.events.17playoffs,game.events.18)
 
 
 save(pbp.all.raw,file="~/Documents/CWA/Hockey Data/pbp.all.raw.RData")
@@ -143,6 +140,7 @@ season.block <- function (season) {
   1 + 1*(year >= 2005) + 1*(year >= 2007) + 1*(year >= 2009) + 1*(year >= 2011) + 1*(year >= 2013) 
   
 }
+
 compare.CDF <- function (original, target, range=1:200) {
   #range=1:200
   
@@ -788,7 +786,8 @@ save(pbp.all.clean,file="~/Documents/CWA/Hockey Data/pbp.all.clean.RData")
                                             scored.data[["20132014"]],
                                             scored.data[["20142015"]],
                                             scored.data[["20152016"]],
-                                            scored.data[["20162017"]]
+                                            scored.data[["20162017"]],
+                                            scored.data[["20172018"]]
                                             )
         
           # Probability Cutoff
@@ -1029,24 +1028,24 @@ m1 <- predicted.goal.model[[1]][[4]]
   ### Log Loss
   library(MLmetrics)
   LogLoss(scored.data$xG,as.numeric(scored.data$goal)-1)
-  # 0.2036276 ## by season - all shots
+  # 0.2031056 ## by season - all shots
   # 0.2567852 by season - shots only
   
   error <- scored.data$xG-(as.numeric(scored.data$goal)-1)
   
   ## Brier Score - Base Line (goal <- 0): 0.08919192
   mean(error^2)
-  # 0.05334452 ## by season - all shots
+  # 0.0531999 ## by season - all shots
   # 0.07151661 # by season - shots only
   
   # Mean Absolute Error
   mean(abs(error))
-  # 0.1067507 ## by season - all shots
+  # 0.1063871 ## by season - all shots
   # 0.142824 # by season - shots only
   
   # RMSE
   sqrt(mean(error^2))
-  #0.2309643 ## by season - all shots
+  #0.230651 ## by season - all shots
   #0.2674259 # by season - shots only
 
   # View by season
@@ -1069,11 +1068,11 @@ m1 <- predicted.goal.model[[1]][[4]]
   ############################################################################################################################################################################
   library(modelr); library(dplyr); library(purrr); library(broom); library(tidyr); library(ggplot2); library(MLmetrics)
   
-  rebound.model.data <- scored.data %>% filter(goal == 0)
+  rebound.model.data <- scored.data
   
   rebound.model <- glm(data = rebound.model.data,
             shot.results.inRebound ~ xG + poly(shot.dist,3, raw = T) + poly(shot.angle,3, raw = T) +  shot.type + Player.Position2 +
-            time.last.off.shot + gamestate, family="binomial")
+            time.last.off.shot + goaliestate, family="binomial")
   
   # Set folds
   folds <- crossv_kfold(rebound.model.data, k = 10)
@@ -1081,7 +1080,7 @@ m1 <- predicted.goal.model[[1]][[4]]
   # Run model over folds
   rebound.model.folds <- folds %>% 
     mutate(rebound.model = map(train, ~ glm(shot.results.inRebound ~ poly(xG,3, raw = T) + (1-xG) + poly(shot.dist,3, raw = T) + poly(shot.angle,3, raw = T) +  shot.type + Player.Position2 +
-                                      time.last.off.shot + gamestate, data = ., family = "binomial", na.action = na.exclude)))
+                                      time.last.off.shot + goaliestate, data = ., family = "binomial", na.action = na.exclude)))
   
   # Predict test data
   predicted.rebound <- rebound.model.folds %>% 
@@ -1118,7 +1117,7 @@ m1 <- predicted.goal.model[[1]][[4]]
   best.rebound.model %>% summary()
   # R-squared
   1 - (best.rebound.model$deviance / best.rebound.model$null.deviance)
-  #0.03453118
+  #0.02577423
   
   ## Combine Data and Impute
   scored.data <- cbind(scored.data,pred.rebound) 
@@ -1126,24 +1125,24 @@ m1 <- predicted.goal.model[[1]][[4]]
   ### Log Loss
   library(MLmetrics)
   LogLoss(scored.data$pred.rebound,scored.data$shot.results.inRebound)
-  #0.1520091
+  #0.1470881
   # 0.1711709 - shots only
   
   rb.error <- scored.data$pred.rebound-scored.data$shot.results.inRebound
   
   ## Brier Score - Base Line (goal <- 0): 0.08919192
   mean(rb.error^2)
-  # 0.03336117 - all shots
+  # 0.03327012 - all shots
   # 0.04005604 - shots only
   
   # Mean Absolute Error
   mean(abs(rb.error))
-  # 0.06954544 - all shots
+  # 0.06659314 - all shots
   # 0.08467813 - shots only
   
   # RMSE
   sqrt(mean(rb.error^2))
-  # 0.1826504 - all shots
+  # 0.182401 - all shots
   # 0.2001401 - shots only
   
   ############################################################################################################################################################################

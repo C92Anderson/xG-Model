@@ -51,113 +51,124 @@ theme_standard <- function(base_size = 16, base_family = "") {
       legend.text = txt ) 
 }
 
-
-### Find
-game.outcomes <- scored.data %>%
-  mutate(home.score = ifelse(ev.team == hometeam & goal == 1,1,0),
-         away.score = ifelse(ev.team != hometeam & goal == 1,1,0),
-         home.xG = ifelse(ev.team == hometeam & xG.team > 0,xG.team,0),
-         away.xG = ifelse(ev.team != hometeam & xG.team > 0,xG.team,0)) %>%
-  group_by(season, season2, gcode, awayteam) %>%
-  summarise(home.score = sum(home.score), 
-            away.score = sum(away.score),
-            home.xG = round(sum(home.xG),1),
-            away.xG = round(sum(away.xG),1)) 
-
-rebound.goal.probability <- 0.2560365
-
-
-goalie.games <- scored.data %>%
-  mutate(Goalie = sapply(strsplit(as.character(SA.Goalie), ' '), function(x) x[length(x)]),
-         SA = 1,
-         GA = as.numeric(goal)-1,
-         xGA = ifelse(is.Rebound == 0, xG + (pred.rebound * rebound.goal.probability),0),
-         SA.Team = ifelse(ev.team == hometeam, awayteam, hometeam),
-         SA.Venue = ifelse(ev.team == hometeam, "Away", "Home")) %>%
-  group_by(SA.Goalie, SA.Venue, SA.Team, season, season2, gcode) %>%
-  #Total xG and Goals
-  summarise(xGA = round(sum(xGA),1),
-            #xGA.team = sum(xG.team),
-            GA = sum(GA))
-
-## Function to calculate win probability based on xGF & xGA
-win_probabibilty <- function(xG.support, GF, xGA, sims = 100, type="GF") {
+goalie_wins <- function(szn) {
   
-  outcome <- vector(length=sims)
+  ### Find
+  game_outcomes <- scored_data %>%
+    mutate(Home_Score = ifelse(Ev_Team == Home_Team & Goal == 1,1,0),
+           Away_Score = ifelse(Ev_Team != Home_Team & Goal == 1,1,0),
+           Home_xG = ifelse(Ev_Team == Home_Team & xG_team > 0,xG_team,0),
+           Away_xG = ifelse(Ev_Team != Home_Team & xG_team > 0,xG_team,0)) %>%
+    group_by(season, season2, Game_Id, Away_Team) %>%
+    summarise(Home_Score = sum(Home_Score), 
+              Away_Score = sum(Away_Score),
+              Home_xG = round(sum(Home_xG),1),
+              Away_xG = round(sum(Away_xG),1)) 
   
-  for(i in 1:sims) {
-    
-    GF <- ifelse(type == "GF", GF, sum(rbinom(size=1, prob=xG.support/30, n=30)))
-    GA <- sum(rbinom(size=1, prob=xGA/30, n=30))
-    
-    outcome[i] <- ifelse(GF > GA,2, 
-                        ifelse(GF == GA,1.5,0))
-    
-  }  
-  return(mean(outcome))
+  rebound_goal_probability <- 0.2560365
   
+  
+  goalie_games <- scored_data %>%
+    filter(SA_Goalie != "") %>%
+    mutate(Goalie = sapply(strsplit(as.character(SA_Goalie), ' '), function(x) x[length(x)]),
+           SA = 1,
+           xGA = ifelse(is_Rebound == 0, sum(xG_raw + (xR * rebound_goal_probability)),0),
+           SA_Team = ifelse(Ev_Team == Home_Team, Away_Team, Home_Team),
+           SA_Venue = ifelse(Ev_Team == Home_Team, "Away", "Home")) %>%
+    group_by(SA_Goalie, SA_Venue, SA_Team, season, season2, Game_Id) %>%
+    #Total xG and Goals
+    summarise(xGA = sum(xGA),
+              GA = sum(Goal))
+  
+  ## Function to calculate win probability based on xGF & xGA
+  win_probabibilty <- function(xG_support, GF, xGA, sims = 100, type="GF") {
+    
+    outcome <- vector(length=sims)
+    
+    for(i in 1:sims) {
+      
+      GF <- ifelse(type == "GF", GF, round(sum(rbinom(size=1, prob=xG_support/30, n=30)),1))
+      GA <- sum(rbinom(size=1, prob=xGA/30, n=30))
+      
+      outcome[i] <- ifelse(GF > GA,2, 
+                          ifelse(GF == GA,1.5,0))
+      
+    }  
+    return(mean(outcome))
+    
+  }
+  
+  win_probabibilty(xG_support=1, GF=3, xGA=3, sims=100, type="GF")
+  
+  goalie_games_wresult <- goalie_games %>%
+    group_by(SA_Team, season, season2, Game_Id) %>%
+    summarise(team.goalies = uniqueN(SA_Goalie)) %>%
+    inner_join(goalie_games, by = c("SA_Team", "season","season2","Game_Id")) %>%
+    filter(team.goalies < 2) %>%
+    left_join(game_outcomes, by = c("season","season2", "Game_Id")) %>%
+    rowwise() %>% 
+    mutate(xGF = ifelse(SA_Venue == "Home", Home_xG, Away_xG),
+           Goal_Support = ifelse(SA_Venue == "Home", Home_Score, Away_Score),
+           Expected_Points_GF = win_probabibilty(xGF, Goal_Support, xGA, 1000, type = "GF"),
+           Expected_Points_xGF = win_probabibilty(xGF, Goal_Support, xGA, 1000, type = "xGF"),
+           Actual_Points = ifelse(SA_Venue == "Home" & Home_Score > GA,2,
+                           ifelse(SA_Venue == "Away" & Away_Score > GA,2,
+                           ifelse(Away_Score == Home_Score, 1.5, 0)))) 
+  
+  
+  goalie_games_wresult2 <- goalie_games_wresult %>%
+    select(-starts_with("home"),
+           -starts_with("away")) %>%
+    mutate(Game_Points_Lift_GF = Actual_Points - Expected_Points_GF,
+           Game_Points_Lift_xGF = Actual_Points - Expected_Points_xGF
+           )
+  
+  
+  goalie_seasons <- goalie_games_wresult2 %>%
+          group_by(SA_Goalie, season) %>%
+          summarise(Potential_Points_Lift_GF = sum(2 - Expected_Points_GF),
+                    Potential_Points_Loss_GF = sum(Expected_Points_GF),
+                    Actual_Points_Season = sum(Actual_Points),
+                    Expected_Points_GF_Season = sum(Expected_Points_GF),
+                    Points_Lift = Actual_Points_Season - Expected_Points_GF_Season,
+                    Game_Points_Lift_GF_Season = sum(Game_Points_Lift_GF),
+                    Points_Gained_oPotential_GF_Season = (Potential_Points_Lift_GF - Game_Points_Lift_GF_Season) / (Potential_Points_Loss_GF + Potential_Points_Lift_GF),
+                    
+                    Game_Points_Lift_GF_Season_perGame = Game_Points_Lift_GF_Season / n(),
+                    GP = n())
+  
+  
+  goalie_wins_plot <- goalie_seasons %>%
+        filter(season %in% szn) %>%
+        ggplot(aes(x=reorder(SA_Goalie,Points_Lift), y=Points_Lift, size=GP, color=Game_Points_Lift_GF_Season_perGame)) +
+        geom_point() +
+        coord_flip() +
+        theme_standard() +
+        geom_hline(yintercept = 0) +
+        scale_y_continuous(labels = scales::percent) +
+        scale_color_gradient2(midpoint = median(goalie_seasons$Game_Points_Lift_GF_Season_perGame), mid="grey50", high="forestgreen", low="red") +
+        labs(x="",y="Percentage Lift in Points to Team Over Expected", size="Games Played", color="Baseline Expected\nPoints per Game",
+             title=paste0("Goaltender Contributions to Winning Over Expected, ",szn,
+                          "\nExpected Points Calculated using Goal Support and xGA (Adjusted for Rebounds) \n@CrowdScoutSprts (github.com/C92Anderson/xG-Model)"))
+  
+  ggsave(filename=paste0("/Users/colander1/Downloads/goalie_wins_plot.png"), plot=goalie_wins_plot,  width=16, height=16)
+
 }
 
-
-goalie.games_wresult <- goalie.games %>%
-  group_by(SA.Team, season, season2, gcode) %>%
-  summarise(team.goalies = uniqueN(SA.Goalie)) %>%
-  inner_join(goalie.games, by = c("SA.Team", "season","season2","gcode")) %>%
-  filter(team.goalies < 2) %>%
-  left_join(game.outcomes, by = c("season","season2", "gcode")) %>%
-  rowwise() %>% 
-  mutate(xGF = ifelse(SA.Venue == "Home", home.xG, away.xG),
-         Goal_Support = ifelse(SA.Venue == "Home", home.score, away.score),
-         Expected_Points_GF = win_probabibilty(xGF, Goal_Support, xGA, 1000, type = "GF"),
-         Expected_Points_xGF = win_probabibilty(xGF, Goal_Support, xGA, 1000, type = "xGF"),
-         Actual_Points = ifelse(SA.Venue == "Home" & home.score > GA,2,
-                         ifelse(SA.Venue == "Away" & away.score > GA,2,
-                         ifelse(away.score == home.score, 1.5, 0)))) 
+goalie_wins("20172018")
 
 
-goalie.games_wresult2 <- goalie.games_wresult %>%
-  select(-starts_with("home"),
-         -starts_with("away")) %>%
-  mutate(Game_Points_Lift_GF = Actual_Points - Expected_Points_GF,
-         Game_Points_Lift_xGF = Actual_Points - Expected_Points_xGF
-         )
-
-
-goalie.seasons <- goalie.games_wresult2 %>%
-        group_by(SA.Goalie, season) %>%
-        summarise(Potential_Points_Lift_GF = sum(2 - Expected_Points_GF),
-                  Potential_Points_Loss_GF = sum(Expected_Points_GF),
-                  Actual_Points_Season = sum(Actual_Points),
-                  Expected_Points_GF_Season = sum(Expected_Points_GF),
-                  Game_Points_Lift_GF_Season = sum(Game_Points_Lift_GF),
-                  Points_Gained_oPotential_GF_Season = (Potential_Points_Lift_GF - Game_Points_Lift_GF_Season) / (Potential_Points_Loss_GF + Potential_Points_Lift_GF),
-                  
-                  Game_Points_Lift_GF_Season_perGame = Game_Points_Lift_GF_Season / n(),
-                  GP = n())
 
 
 goalie.seasons %>%
-      filter(season %in% c("20162017") & GP > 20) %>%
-      ggplot(aes(x=reorder(SA.Goalie,Added_Points_perGame), y=Added_Points_perGame, size=GP, color=Expected_Points_perGame)) +
-      geom_point() +
-      coord_flip() +
-      theme_standard() +
-      geom_hline(yintercept = 0) +
-      scale_y_continuous(labels = scales::percent) +
-      scale_color_gradient2(midpoint = median(goalie.seasons$Expected_Points_perGame), mid="grey50", high="forestgreen", low="red") +
-      labs(x="",y="Percentage Lift in Points to Team Over Expected", size="Games Played", color="Baseline Expected\nPoints per Game",
-           title="Goaltender Contributions to Winning Over Expected, 2016-17\nExpected Points Calculated using Goal Support and xGA (Adjusted for Rebounds) \n@CrowdScoutSprts (github.com/C92Anderson/xG-Model)")
-
-
-goalie.seasons %>%
-  filter((season %in% c("20162017") & GP > 40 & SA.Goalie != "PETER BUDAJ") | (SA.Goalie %in% c("CRAIG ANDERSON","JONATHAN QUICK")))  %>%
+  filter((season %in% c("20162017") & GP > 40 & SA_Goalie != "PETER BUDAJ") | (SA_Goalie %in% c("CRAIG ANDERSON","JONATHAN QUICK")))  %>%
   ungroup() %>%
-  select(SA.Goalie) %>%
-  left_join(goalie.games_wresult2, by = c("SA.Goalie")) %>%
+  select(SA_Goalie) %>%
+  left_join(goalie_games_wresult2, by = c("SA_Goalie")) %>%
   filter(season %in% c("20162017")) %>%
-  left_join(goalie.seasons[c("Game_Points_Lift_GF_Season","SA.Goalie","season2","GP")], by = c("SA.Goalie","season2")) %>%
+  left_join(goalie.seasons[c("Game_Points_Lift_GF_Season","SA_Goalie","season2","GP")], by = c("SA_Goalie","season2")) %>%
   #filter(GP > 10) %>%
-  ggplot(aes(x=Game_Points_Lift_GF,y=reorder(SA.Goalie,Game_Points_Lift_GF),fill=Game_Points_Lift_GF_Season),alpha=.25) +
+  ggplot(aes(x=Game_Points_Lift_GF,y=reorder(SA_Goalie,Game_Points_Lift_GF),fill=Game_Points_Lift_GF_Season),alpha=.25) +
   ggjoy::geom_joy() +
   facet_wrap(~season2) +
   theme_standard() +
@@ -170,30 +181,36 @@ goalie.seasons %>%
        title="Goaltender Game-Level Contributions to Winning Over Expected, 2015-2017\nExpected Points Calculated using Goal Support and xGA (Adjusted for Rebounds) \n@CrowdScoutSprts (github.com/C92Anderson/xG-Model)")
 
 ### 
-goalie.seasons %>%
-  mutate(Name = ifelse(GP > 5, sapply(strsplit(as.character(SA.Goalie), ' '), function(x) x[length(x)]),"")) %>%
-  filter(season %in% c("20162017"))  %>%
-  ggplot(aes(x=Expected_Points_GF_Season,y=Actual_Points_Season,color=Game_Points_Lift_GF_Season, size=GP, label=Name),alpha=.25) +
+goalie_wins_v_expected_plot <- goalie.seasons %>%
+  mutate(Name = ifelse(Expected_Points_GF_Season > 50 & (Actual_Points_Season - Expected_Points_GF_Season) > 5, 
+                       paste0(sapply(strsplit(as.character(SA_Goalie), ' '), function(x) x[length(x)])),"")) %>%
+  filter(season %in% c("20122013","20132014","20142015","20152016","20162017")) %>%
+  ggplot(aes(x=Expected_Points_GF_Season,y=Actual_Points_Season,color=as.factor(season), size=GP, label=Name),alpha=.25) +
+  geom_abline(intercept = 0, slope = 1, color="grey20", size=2) +
   geom_point() +
   ggrepel::geom_label_repel() +
-  theme_standard() +
+  theme_standard() + ggthemes::scale_color_gdocs() +
   annotate("text",x=20,y=50,label="More Points than Expected\nConsidering Goal Support & xG Against", color="grey25") +
   annotate("text",x=50,y=20,label="Fewer Points than Expected\nConsidering Goal Support & xG Against", color="grey25") +
-  geom_abline(intercept = 0, slope = 1, color="grey20") +
-  scale_color_gradient2(midpoint = 0, mid="grey50", high="forestgreen", low="red") +
+  geom_abline(intercept = 0, slope = 1, color="grey20", size=2) +
+  stat_smooth(method="lm", se=TRUE, fill=NA,# color=as.factor(season), 
+              formula = y ~ poly(x, 2, raw=TRUE)) +
   labs(y="Actual Points Gained with Goalie",
        x="Expected Points Gained with Goalie (Calculated using Goal Support and xGA, Adjusted for Rebounds)", 
-       color="Team Points Gained\nAbove Expected",
-       title="Goaltender Contributions to Winning Compared to Expected, 2016-17\nExpected Points Calculated using Goal Support and xGA (Adjusted for Rebounds) \n@CrowdScoutSprts (github.com/C92Anderson/xG-Model)")
+       color="Season",
+       title="Goaltender Contributions to Winning Compared to Expected, 2012-17\nExpected Points Calculated using Goal Support and xGA (Adjusted for Rebounds) \n@CrowdScoutSprts (github.com/C92Anderson/xG-Model)")
 
+
+  ggsave(filename="/Users/colander1/Downloads/goalie_wins_v_expected_plot2.png", plot=goalie_wins_v_expected_plot,  width=16, height=16)
+  
 
 ### By Goalie
 goalie_list <- c("COREY CRAWFORD")
 
-goalie.games_wresult2 %>%
+goalie_games_wresult2 %>%
   mutate(Season_Type = ifelse(length(season2)>8,"Playoffs","Regular Season")) %>%
-  filter(SA.Goalie %in% goalie_list & season != "20072008")  %>%
-  left_join(goalie.seasons, by = c("SA.Goalie","season","season2")) %>%
+  filter(SA_Goalie %in% goalie_list & season != "20072008")  %>%
+  left_join(goalie.seasons, by = c("SA_Goalie","season","season2")) %>%
   filter(GP > 5) %>%
   ggplot(aes(x=Game_Points_Lift_GF,y=season2,fill=Game_Points_Lift_GF_Season_perGame),alpha=.25) +
   ggjoy::geom_joy() +
@@ -208,16 +225,16 @@ goalie.games_wresult2 %>%
        title=paste0(goalie_list," Game-Level Contributions to Winning Over Expected\nExpected Points Calculated using Goal Support and xGA (Adjusted for Rebounds) \n@CrowdScoutSprts (github.com/C92Anderson/xG-Model)"))
 
 ### Histograms
-goalie.games_wresult2 %>%
+goalie_games_wresult2 %>%
   mutate(Season_Type = ifelse(nchar(season2)>8,"Playoffs"," Regular Season")) %>%
-  filter(SA.Goalie %in% goalie_list & season != "20072008")  %>%
-  left_join(goalie.seasons, by = c("SA.Goalie","season","season2")) %>%
+  filter(SA_Goalie %in% goalie_list & season != "20072008")  %>%
+  left_join(goalie.seasons, by = c("SA_Goalie","season","season2")) %>%
   filter(GP > 5) %>%
   ggplot(aes(x=Game_Points_Lift_GF, fill=Game_Points_Lift_GF_Season, group=Season_Type, color=Season_Type),alpha=.25) +
   #ggjoy::geom_joy() +
   geom_histogram() +
   theme_standard() +
-  facet_grid(season ~ SA.Goalie) +
+  facet_grid(season ~ SA_Goalie) +
   xlim(c(-2,2)) +
   annotate("text",x=1.9,y=5,label="Stolen Game - Game Won Against Odds", angle = 90, color="grey25") +
   annotate("text",x=-1.9,y=5,label="Blown Game - Game Lost Against Odds", angle = 90, color="grey25") +
@@ -225,5 +242,10 @@ goalie.games_wresult2 %>%
   scale_fill_gradient2(midpoint = 0, mid="grey50", high="forestgreen", low="red") +
   labs(y="",x="Game-Level Team Points - Expected Points (Calculated using Goal Support and xGA, Adjusted for Rebounds)", fill="Season Team Points\nAbove Expected per Game",
        title=paste0(goalie_list," Game-Level Contributions to Winning Over Expected\nExpected Points Calculated using Goal Support and xGA (Adjusted for Rebounds) \n@CrowdScoutSprts (github.com/C92Anderson/xG-Model)"))
+
+#############
+##Repeatability
+#############
+
 
 

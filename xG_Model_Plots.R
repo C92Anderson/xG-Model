@@ -15,7 +15,7 @@ paste0("LAST UPDATED: ",Sys.Date())
 library(ggplot2);library(MASS);library(dplyr); library(DataCombine)
 library(glmnet); library(nhlscrapr); library(caret); library(RMySQL); library(readr); library(reshape2); library(rvest)
 library(twitteR);library(httr); library(data.table); library(reshape2);
-library(shiny)
+library(shiny); library(ggrepel)
 library(ggplot2)
 library(xts)
 library(RMySQL)
@@ -196,7 +196,7 @@ goalie.plot(c("PEKKA RINNE","JUUSE SAROS","MATTHEW MURRAY","MARC-ANDRE FLEURY"),
 goalie.plot(c("STEVE MASON","ANTTI RAANTA","BRIAN ELLIOTT","SCOTT DARLING","PHILIPP GRUBAUER",
               "PETR MRAZEK","ROBIN LEHNER","MIKE SMITH","AARON DELL"),c("20142015","20152016","20162017"))[[1]]
 
-goalie.plot(c("HENRIK LUNDQVIST"),c("20162017"))[[1]]
+goalie.plot(c("HENRIK LUNDQVIST","TUUKKA RASK"),c("20132014","20142015","20152016","20162017"))[[1]]
 
 
 
@@ -1590,7 +1590,7 @@ xG_v_GF_pershot("ALEX TANGUAY")
 
 xG_v_GF_pershot("STEVEN STAMKOS")
 
-xG_v_GF_pershot("BRAD BOYES")
+xG_v_GF_pershot("JAROMIR JAGR")
 
 xG_v_GF_pershot("MITCHELL MARNER")
 
@@ -1701,7 +1701,8 @@ team.story <- function(team, year) {
             axis.title.x=element_blank(),
             axis.text.x=element_blank(),
             axis.ticks.x=element_blank()) +
-      labs(title=paste0(team," ",year," xG Components by Game - ", Sys.Date(), " YTD\n@CrowdScoutSprts - xG Model built using nhlscrapr (github.com/C92Anderson/xG-Model)"),
+      theme_standard() + ggthemes::scale_fill_gdocs() +
+      labs(title=paste0(team," ",year," xG Components by Game - ", Sys.Date(), " YTD\n@CrowdScoutSprts (github.com/C92Anderson/xG-Model)"),
            x="Game Number", y=paste0("xG Lift to ", team), fill="Team Component") 
     
     cum.chart <- team.bygame %>%
@@ -1718,18 +1719,21 @@ team.story <- function(team, year) {
       ggplot() +
       theme(panel.background = element_blank(),
             legend.position="right") +  #c(0.15,0.15)) +
+      theme_standard() + ggthemes::scale_color_gdocs() +
       annotate("segment",x=0,y=0,xend=max(team.bygame$GameNum),yend=0) +
       #annotate("text", x = 1, y = max(cumsum(team.bygame$Final)) + 1, hjust=0, size = 4, label = "@CrowdScoutSprts\nxG Model built using nhlscrapr\ngithub.com/C92Anderson/xG-Model") +
       annotate("text", x = 1, y = min(cumsum(team.bygame$Final)) - 1, hjust=0, size = 2.5, label = "Cumulative Goal Differential Black Line\nEmpty net and shootout goals removed. May contain inaccuracies.") +
       geom_line(aes(x=GameNum, y=value, group=variable, color=variable), size=1.5) +
       geom_line(aes(x=GameNum, y=`Goal Differential`, group=1), size=1.5) +
       #scale_y_continuous(breaks = seq( min(team.bygame$value),max(team.bygame$value), by=1)) +
-      labs(#title=paste0(team," ",season," Cumulative xG Components by Game - ", Sys.Date(), " YTD"),
+      labs(title=paste0(team," ",year," Cumulative xG Components by Game"),
         x="Game Number", y=paste0("Cumulative xG Lift to ", team), color="Cumulative\nTeam Component") 
     
     out <- multiplot(game.chart, cum.chart, cols=1)
     
-    return(list(out,team.bygame))
+    return(list(cum.chart))
+    #return(list(out,team.bygame))
+    #return(out)
   }
 }
 
@@ -1738,7 +1742,10 @@ team.story <- function(team, year) {
 ########6.B ALL TEAM XG STORIES
 ############################################################################################################################################################################
 
-team.story("ANA", "20162017")[[1]]
+story_out <- team.story("FLA", "20152016")
+ggsave(filename="/Users/colander1/Downloads/team_story_out2.png", plot=story_out,  width=13.5, height=12)
+
+
 
 team.story2 <- function(team, season) { 
   table <- team.story(team, season)[[2]]
@@ -1938,7 +1945,169 @@ shots.only %>%
        title=paste0("Share of Shots Missing the Net by Defending Team, Season\nMedian Shots Missed: ",
       round(median(shots.only$Share.Missed),3)*100,"% - Black Line"))
 
+##########Shooting Talent by Age
+
+conn <- dbConnect(MySQL(), user='ca_elo_games', password='cprice31!',
+                  host='mysql.crowdscoutsports.com', db='nhl_all')
+on.exit(dbDisconnect(conn))
+
+#####################
+####SHOOTING TALENT BY AGE
+#####################
+### Load Gaolie/Skater Roster with Handedness
+skater.roster <- dbGetQuery(conn, "SELECT distinct upper(playerName) as Player, 
+                            playerId as shooterID,  
+                            playerPositionCode as `Player.Position`,
+                            playerShootsCatches as Shoots,
+                            playerBirthDate as shooterDOB
+                            FROM hockey_roster_info AS B
+                            WHERE playerPositionCode != 'G'") %>%
+  filter(!shooterID %in% c(8474744,8466208,8471747,8468436,8466155,8476979,8471221)) %>%
+  unique() %>%
+  mutate_all(funs(gsub("MATTHEW ","MATT ", .))) %>%
+  mutate_all(funs(gsub("PIERRE-ALEXANDRE ","PA ", .))) 
+
+shooting_talent_byage <- scored.data %>%
+            left_join(skater.roster[c("Player","shooterDOB","Player.Position","Shoots")], by = "Player") %>%
+            mutate(ShooterAge = (floor((as.Date(paste0("10/05/",substr(season,5,8)), format = "%m/%d/%Y") - as.Date(shooterDOB)) / 365.25)),
+                   Player.Position = ifelse(Player.Position == "D","D","F")) %>%
+            group_by(ShooterAge, Player.Position) %>%
+            summarise(total_xG = sum(xG),
+                      total_G = sum(as.numeric(goal)-1),
+                      total_shots = n(),
+                      Mean_Shot_Distance = mean(shot.dist),
+                      Mean_Shot_Angle = mean(shot.angle),
+                      Sample = uniqueN(Player)) %>%
+            filter(ShooterAge > 17 & ShooterAge < 41) %>%
+            mutate(ShootingLeft_per100Shot = (total_G - total_xG) / (total_shots / 100))
+            
+
+
+age_shooting_talent <- shooting_talent_byage %>%
+  ungroup() %>%
+  mutate(ShooterAge = as.factor(ShooterAge)) %>%
+  ggplot() +
+  geom_bar(aes(x=ShooterAge, y=ShootingLeft_per100Shot, fill=Sample), position="dodge", stat="identity") +
+   labs(title = "Scoring Over Expected by Shooter Age", x="Shooter Age", y="Actual Goals Scored Over Expected / 100 Shots", fill="Sample") +
+  scale_fill_gradient2(low="red",high="forestgreen", mid="grey50", midpoint = median(shooting_talent_byage$Sample) ) +
+  facet_grid(~Player.Position) +
+  theme_standard()
+
+ggsave(filename="/Users/colander1/Downloads/age_shooting_talent.png", plot=age_shooting_talent, width=12, height=8.5)
+
+age_shooting_metrics <- shooting_talent_byage %>%
+  ungroup() %>%
+  mutate(ShooterAge = as.factor(ShooterAge)) %>%
+  ggplot() +
+  geom_line(aes(x=ShooterAge, y=Mean_Shot_Distance, group = Player.Position, color=Player.Position)) +
+  #geom_line(aes(x=ShooterAge, y=Mean_Shot_Angle, group = 1, color="Mean Angle")) +
+  
+  labs(title = "Mean Shot Distance by Shooter Age", x="Shooter Age", y="Feet from Net", color="") +
+  theme_standard() + ggthemes::scale_color_gdocs()
+
+ggsave(filename="/Users/colander1/Downloads/age_shooting_metrics.png", plot=age_shooting_metrics, width=12, height=8.5)
+
+
+#####################
+####SHOOTING TALENT AND SHOT DISTANCE
+#####################
+
+shooting_talent_distance <- scored.data %>%
+  left_join(skater.roster[c("Player","shooterDOB","Player.Position","Shoots")], by = "Player") %>%
+  filter(gamestate %in% c("5v5","5v4")) %>%
+  mutate(Player.Position = ifelse(Player.Position == "D", paste0("D"),Player.Position)) %>%
+  group_by(Player, gamestate, Player.Position) %>%
+  summarise(total_xG = sum(xG),
+            total_G = sum(as.numeric(goal)-1),
+            total_shots = n(),
+            ShootingTalent_xG_100Shots = (total_G - total_xG) / (total_shots / 100),
+            Mean_Shot_Distance = mean(shot.dist),
+            Mean_Shot_Angle = mean(shot.angle),
+            ShootingPct = total_G / total_shots) %>%
+  mutate(Name = paste0(sapply(strsplit(as.character(Player), ' '), function(x) x[length(x)])),#, substr(season,7,8)),
+         Highlight = ifelse(Player %in% c("T.J. OSHIE","TROY BROUWER"), Name, NA),
+         Player.Position = ifelse(is.na(Player.Position),"C",Player.Position),
+         Player.Position2 = ifelse(substr(Player.Position,1,1) == "D","D","F")) %>%
+  group_by(Player, Player.Position) %>%
+  mutate(Season_Shots = sum(total_shots, na.rm = T)) %>%
+        filter(Season_Shots > 100  & total_shots > 20) %>%
+  group_by(Player.Position2, gamestate) %>%
+  mutate(Pos_Shooting = median(ShootingPct),
+  ShootingPct_Indexed = (ShootingPct - Pos_Shooting))
+
+
+shooting_talent_distance_plot <- shooting_talent_distance %>%
+  ggplot(aes(x=Mean_Shot_Distance, y=ShootingPct, color=as.factor(Player.Position), size = total_shots)) +
+  geom_point(alpha = 0.4) +
+  geom_text(aes(label = Name), check_overlap = T) +
+  geom_label(aes(label = Highlight)) +
+  facet_grid(gamestate ~ Player.Position2, scales = "free") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Shooting Percentage and Shot Distance by Position and Strength", x="Mean Shot Distance", y="Shooting Percentage", color="Position", size = "Season Shots") +
+  theme_standard() + ggthemes::scale_color_gdocs()
+
+ggsave(filename="/Users/colander1/Downloads/shooting_talent_distance_plot_pp.png", plot=shooting_talent_distance_plot, width=12, height=8.5)
+
+
+
+shooting_talent_distance_angle_plot <- shooting_talent_distance %>%
+  ggplot(aes(x=Mean_Shot_Distance, y= 90 - Mean_Shot_Angle, size=ShootingPct_Indexed, color = total_shots, shape = as.factor(Player.Position))) +
+  geom_point(alpha = 0.2) +
+  geom_text(aes(label = Name), check_overlap = T) +
+  #geom_label(aes(label = Highlight)) +
+  scale_color_gradient2(low="firebrick2",mid="grey50",high="forestgreen", midpoint = 0) +
+    labs(title = "Player Shooting Percentage by Mean Shot Distance and Angle\nShooting Percentage Indexed to Mean Position and Situation", 
+         x="Mean Shot Distance", y="Mean Shot Angle (Degrees from Center of Ice)", 
+          size="Shooting Percentage Indexed\nto Position/Strength\n(0 = Average)", color = "Shots") +
+  theme_standard() +
+  facet_grid(gamestate ~ Player.Position2, scales = "free") 
+  
+
+ggsave(filename="/Users/colander1/Downloads/shooting_talent_distance_angle_plot.png", plot=shooting_talent_distance_angle_plot, width=12, height=8.5)
 
 
 
 
+shooting_talent_distance_xG_plot <- shooting_talent_distance %>%
+  filter(gamestate == "5v4") %>%
+  ggplot(aes(x=total_xG / total_shots, y=ShootingPct - (total_xG / total_shots), size=total_shots, color = as.factor(Player.Position))) +
+  geom_point(alpha = 0.2) +
+  geom_text(aes(label = Name), check_overlap = T) +
+  #geom_label(aes(label = Highlight)) +
+  #scale_color_gradient2(low="firebrick2",mid="grey50",high="forestgreen", midpoint = 0) +
+  labs(title = "Player Shot Quality and Goal Scoring by Position and Situation, 2008-17", 
+       x="Expected Shooting Percentage", y="Shooting Percentage Above Expected", 
+       size="Total Shots", color = "Position") +
+  theme_standard() +
+  scale_y_continuous(labels = scales::percent, limits = c(-0.2,0.15)) +
+  scale_x_continuous(labels = scales::percent) +
+  geom_hline(yintercept = 0, color = "grey50") +
+  facet_grid(. ~ gamestate, scales = "free") +
+  theme(legend.position = "top") +
+  annotate("text", x = 0.05, y=-0.12, label="Perimeter Muffins\nLow % Shots\nPoor Shooting", color="grey50", hjust=0, size = 3) +
+  annotate("text", x = 0.2, y=-0.12, label="Net-front Duds\nHigh % Shots\nPoor Shooting", color="grey50", hjust=0, size = 3) +
+  annotate("text", x = 0.05, y=0.12, label="Perimeter Missles\nLow % Shots\nGood Shooting", color="grey50", hjust=0, size = 3) +
+  annotate("text", x = 0.2, y=0.12, label="Net-front Darts\nHigh % Shots\nGood Shooting", color="grey50", hjust=0, size = 3)
+
+ggsave(filename="/Users/colander1/Downloads/shooting_talent_distance_xG_plot_pp.png", plot=shooting_talent_distance_xG_plot, width=12, height=8.5)
+
+
+shooting_talent_distance_fwd_pp_plot <- shooting_talent_distance %>%
+  filter(gamestate == "5v4" & Player.Position != "D") %>%
+  mutate(Highlight = ifelse((Mean_Shot_Distance >= 20 & ShootingPct > 0.2) & total_shots > 50, Name, NA)) %>%
+  ggplot(aes(x=Mean_Shot_Distance, y=ShootingPct, size=total_shots, color = as.factor(Player.Position))) +
+  geom_point(alpha = 0.2) +
+  ggrepel::geom_label_repel(aes(label = Highlight)) +
+  #geom_text(aes(label = Name), check_overlap = T) +
+  #scale_color_gradient2(low="firebrick2",mid="grey50",high="forestgreen", midpoint = 0) +
+  labs(title = "Netfront Presence, 5v4 Forward Shot Distance and Goal Scoring, 2008-17\nLabelled players with >50 PP shots & >20 shooting % & >20ft mean shot distance\n@crowdscoutsprts", 
+       x="Mean Shot Distance", y="Shooting Percentage", 
+       size="Total Shots", color = "Position") +
+  theme_standard() +
+  #scale_y_continuous(labels = scales::percent, limits = c(-0.2,0.15)) +
+  scale_y_continuous(labels = scales::percent, limits = c(0,0.25)) +
+  #geom_hline(yintercept = 0, color = "grey50") +
+  #facet_grid( season ~ ., scales = "free") +
+  theme(legend.position = "top")
+
+ggsave(filename="/Users/colander1/Downloads/shooting_talent_distance_fwd_pp_plot.png", plot=shooting_talent_distance_fwd_pp_plot, width=12, height=8.5)

@@ -3,7 +3,7 @@
 ############################################################################################################################################################################
 library(ggplot2);library(dplyr); library(DataCombine)
 library(glmnet); library(nhlscrapr); library(caret); library(RMySQL); library(readr); library(reshape2); library(rvest)
-library(twitteR);library(httr)
+library(httr)
 
 load("~/Documents/CWA/Hockey Data/xG.scored.data.RData")
 
@@ -279,14 +279,13 @@ goalie.bayesian <- function(goalie, seasons=c("20072008","20082009","20092010","
     ggplot() +
     geom_line(aes(x=X1, y=Y1, group=Variable, color=Variable, linetype=Variable)) +
     facet_wrap(~Season, ncol = 2) +
-    scale_color_manual(name="",
-                       values=c("Prior (Expected Sv%)"= "red", "Likelihood (Realized Sv%)"="green", "Posterior (Bayesian Sv%)"="blue")) +
+    #scale_color_manual(name="",values=c("Prior (Expected Sv%)"= "red", "Likelihood (Realized Sv%)"="green", "Posterior (Bayesian Sv%)"="blue")) +
     guides(col = guide_legend(reverse = TRUE), linetype = guide_legend(reverse = TRUE)) +
     labs(title=paste0(goalie," Bayesian Performance ",max(2011,min(substr(season.data$Season,1,4))),"-2017\nExpected Sv% (Prior) Simulated ",sims,"x Using Expected Rebound & Goal Model\n@CrowdScoutSprts (github.com/C92Anderson/xG-Model)"),
          color="",linetype="",
          x="(Expected) Save Percentage", y="Density") +
-    theme(panel.background = element_blank(),
-          legend.position = "top") +
+    theme(legend.position = "top") +
+    theme_standard() + ggthemes::scale_color_gdocs() +
     scale_x_continuous(labels = scales::percent, limits = c(0.8, 1)) 
   
   season.text <- data.frame(Season=c(levels(season.data$Season)),  #panel
@@ -372,18 +371,22 @@ goalie.bayesian <- function(goalie, seasons=c("20072008","20082009","20092010","
       labs(title=paste0(goalie," Bayesian Save Percentage Lift ",min(substr(season.data$Season,1,4)),"-2017\nExpected Sv% (Prior) Simulated ",sims,"x Using Expected Rebound & Goal Model\n@CrowdScoutSprts (github.com/C92Anderson/xG-Model)"),
            color="Season",
            x="Cumulative Career Shots", y="Goals Prevented / 100 Shots (Posterior Bayesian Sv% - Prior Expected Sv%)") +
-      theme(panel.background = element_blank(),
-            panel.grid.major.y = element_line(colour = "grey", size = 0.25)) +
+      theme(panel.grid.major.y = element_line(colour = "grey", size = 0.25)) +
+      theme_standard() + ggthemes::scale_color_gdocs() +
+      scale_y_continuous(labels = scales::percent) + 
       annotate("segment",x=0,y=0,yend=0, xend=max(goalie.shots.bayes2$cum.shots),color="dark grey", size=0.5)
 
 return(list(p1,p2))
 
 }  
 
+mm <- goalie.bayesian("MATTHEW MURRAY")
+
+el <- goalie.bayesian("EDDIE LACK")
+
 sd <- goalie.bayesian("SCOTT DARLING")
 
 
-ja <- goalie.bayesian("JAKE ALLEN")
 
 bh <- goalie.bayesian("BRADEN HOLTBY")
 
