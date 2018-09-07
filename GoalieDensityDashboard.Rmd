@@ -1,0 +1,487 @@
+---
+title: "Goalie Dashboard"
+resource_files:
+- team_day_ratings_lag.csv
+runtime: shiny
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+
+library("MASS"); library(reshape2) # For melt function
+library(plotly); library(dplyr); library(ggplot2); library(shiny)
+
+fun.draw_rink <- function() {
+    
+    xseq <- seq(-4, 4, length = 100)
+    theta1 <- seq(0, 2 * pi, length = 300)
+    theta <- seq(0, 2 * pi, length = 300)
+    dd <- (5 + 7 / 12) / 2
+    
+    ## Blank NHL Rink
+    
+    rink <- ggplot(data = data.frame(x = 1, y = 1), aes(x, y)) + 
+        
+    geom_path(data = data.frame(
+        x = c(15, 87 + 13 * sin(seq(0, pi / 2, length = 20)), 
+            87 + 13 * sin(seq(pi / 2, 0, length = 20)), 15), 
+        y = c(-42.5, -42.5 + 15 - 15 * cos(seq(0, pi / 2, length = 20)), 
+            42.5 - 15 + 15 * cos(seq(pi / 2, 0, length = 20)), 42.5))) + 
+
+    ## Goal Lines
+    geom_path(data = data.frame(x = c(89),
+                                y = c(42.5 - 15 + sqrt(15^2 - (15 - 11)^2), 
+                                    -(42.5 - 15 + sqrt(15^2 - (15 - 11)^2)))), 
+              color = 'red') + 
+    ## Nets
+    geom_path(data = data.frame(x = c(90, 92, 92, 90)), y = c(-3, -3, 3, 3)) + 
+
+    ## Restricted Area
+    geom_segment(aes(x = 89, y = -11, xend = 100, yend = -14), color = 'red') + 
+    geom_segment(aes(x = 89, y = 11, xend = 100, yend = 14), color = 'red') + 
+
+    ## Blue Lines
+    geom_segment(aes(x = 25, y = -42.5, xend = 25,  yend = 42.5), color = 'blue', size = 1) + 
+
+    ## Crease
+    geom_polygon(data = data.frame(x = 1 * c(89, 83+xseq^2 / 4^2 * 1.5, 89),
+                                   y = c(-4, xseq, 4)), 
+                 color = 'red', fill = 'deepskyblue2') + 
+    geom_polygon(data = data.frame(y = 22 + 1 * cos(theta), 
+                                   x = 69 + 1 * sin(theta)), 
+                 color = 'red', fill = 'red') + 
+    geom_polygon(data = data.frame(y = -22 + 1 * cos(theta), 
+                                   x = 69 + 1 * sin(theta)), 
+                 color = 'red', fill = 'red') +
+
+    ## Faceoff Circles
+    geom_segment(aes(y = 22 - 0.75, x = 69 - 2, 
+                     yend = 22 - 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 - 2, 
+                     yend = 22 + 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 + 2, 
+                     yend = 22 + 0.75, xend = 69 + 6), color= 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 - 2, 
+                     yend = 22 - 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 - 2, 
+                     yend = -22 + 0.75, xend = 69 - 6), color= 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 + 2, 
+                     yend = -22 + 0.75, xend = 69 + 6), color= 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 - 2, 
+                     yend = -22 - 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 + 2, 
+                     yend = -22 - 0.75, xend = 69 + 6), color = 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 + 2, 
+                     yend = 22 - 0.75, xend = 69 + 6), color = 'red') + 
+    geom_segment(aes(y = 22 - 15, x = 69 - dd, 
+                     yend = 22 - 17, xend = 69 - dd), color = 'red') + 
+    geom_segment(aes(y = 22 - 15, x = 69 + dd, 
+                     yend = 22 - 17, xend = 69 + dd), color = 'red') + 
+    geom_segment(aes(y = 22 + 15, x = 69 + dd, 
+                     yend = 22+17, xend = 69 + dd), color = 'red') + 
+    geom_segment(aes(y = 22 + 15, x = 69 - dd, 
+                     yend = 22 + 17, xend = 69 - dd), color = 'red') + 
+    geom_segment(aes(y = -22 + 15, x = 69 - dd, 
+                     yend = -22 + 17, xend = 69 - dd), color = 'red') + 
+    geom_segment(aes(y = -22 + 15, x = 69 + dd, 
+                     yend = -22 + 17, xend = 69 + dd), color = 'red') + 
+    geom_segment(aes(y = -22 - 15, x = 69 - dd, 
+                     yend = -22 - 17, xend = 69 - dd), color= 'red') + 
+    geom_segment(aes(y = -22 - 15, x = 69 + dd, 
+                     yend = -22 - 17, xend = 69 + dd), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 + 2, 
+                     yend = 22 + 3.75, xend = 69 + 2), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 - 2, 
+                     yend = 22 + 3.75, xend = 69 - 2), color = 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 + 2, 
+                     yend = 22 - 3.75, xend = 69 + 2), color = 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 - 2, 
+                     yend = 22 - 3.75, xend = 69 - 2), color = 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 + 2, 
+                     yend = -22 + 3.75, xend = 69 + 2), color = 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 - 2, 
+                     yend = -22 - 3.75, xend = 69 - 2), color = 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 - 2, 
+                     yend = -22 + 3.75, xend = 69 - 2), color = 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 + 2, 
+                     yend = -22 - 3.75, xend = 69 + 2), color = 'red') + 
+    geom_path(data = data.frame(y = 22 + 15 * cos(theta), 
+                                x = 69 + 15 * sin(theta)), color = 'red') + 
+    geom_path(data = data.frame(y = -22 + 15 * cos(theta), 
+                                x = 69 + 15 * sin(theta)), color = 'red') + 
+        
+    theme_void()
+}
+
+rink <- fun.draw_rink() + coord_fixed()
+
+
+txt <- element_text(size = 18, colour = "grey25", face = "plain")
+bold_txt <- element_text(size = 20, colour = "navy", face = "bold")
+
+theme_standard <- function(base_size = 16, base_family = "") {
+  theme_bw(base_size = base_size, base_family = base_family) +
+    theme(
+      strip.background = element_blank(), 
+      
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_line( colour = "white", size = 2), 
+      panel.grid.major.x = element_line( colour = "white", size = 2), 
+      
+      axis.title.x=element_blank(),
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank(),
+      
+      axis.title.y=element_blank(),
+      axis.text.y=element_blank(),
+      axis.ticks.y=element_blank(),
+
+      panel.background = element_rect(fill="white"),
+      plot.background = element_rect(fill="white"),
+      legend.background = element_rect(fill="white"),
+      legend.key = element_rect(fill="white", size = 20),
+      legend.key.size = unit(1,"cm"),
+      
+      panel.border = element_blank(), 
+      
+      line = element_line( colour = "white", size = 2),
+      text = txt, 
+      plot.title = bold_txt, 
+      
+      axis.title = txt, 
+      axis.text = txt, 
+      
+      legend.title = bold_txt, 
+      legend.text = txt ) 
+}
+
+# load("~/Documents/CWA/Hockey Data/goalie_shot_level_prep.RData")
+# locations_only_1718 <- goalie_shot_level_prep %>%
+#    filter(Shot_Distance < 100) %>%
+#    filter(season == "20172018") %>%
+#    filter(Event %in% c("SHOT","GOAL","MISS")) %>%
+#    filter(Game_State %in% c("5v4","5v5")) %>%
+#    mutate(y = ifelse(xC < 0, -1 * yC, yC),
+#           x = ifelse(xC < 0, -1 * xC, xC),
+#           Type2 = ifelse(Goal == 1,"Goal",
+#                   ifelse(Event == "MISS","Missed",
+#                          "Save")),
+#           Goal_Type = ifelse(Goal == 1 & is_Rebound == 1, "Rebound Goal",
+#                       ifelse(Goal == 1 & is_Rush == 1, "Rush Goal",
+#                       "Goal"))) %>%
+#    dplyr::select(SA_Goalie, season, Event, Game_State, xC, yC, Player_Position2, SA_Team, is_Rebound, is_Rush, Type2, Shooter_Handedness, Type, xG, xG_FirstShot, xR, Goal_Type, Goal, x, y) %>%
+#    na.omit()
+# write.csv(locations_only_1718, "locations_only_1718.csv")
+shot_locations <- read.csv("~/locations_only_1718.csv")
+
+levels(shot_locations$Type2) <- c("Goal","Save","Missed")
+
+goalie_locations <- reactive({
+  
+  select_goalies <- input$select_goalies
+  strength <- input$strength
+  
+  goalie_shot_locations <- shot_locations %>%
+    filter(SA_Goalie %in% select_goalies) %>%
+    filter(Game_State %in% strength)
+
+  return(goalie_shot_locations)
+
+})
+
+goalie_results <- reactive({
+  
+  results <- goalie_locations() %>% 
+      group_by(SA_Goalie) %>% 
+      summarise(GA = sum(Goal),
+                SA = sum(ifelse(xG_FirstShot > 0, 1, 0)),
+                xGA = sum(xG),
+                `xGA (Rebound Adjusted)` = sum(xG_FirstShot + (0.27 * xR)),
+                `xSv%` = 100 * (( SA - `xGA (Rebound Adjusted)`) / SA) ,
+                `Sv%` = 100 * ((SA - GA) / SA),
+                `Sv% Lift (Rebound Adjusted)` = (`xGA (Rebound Adjusted)` - GA) / (SA/100))
+  
+  return(results)
+  
+})
+
+
+
+shot_types <- reactive({
+  
+  out <- goalie_locations() %>% 
+      group_by(SA_Goalie) %>% 
+      summarise(#`xSv%` = 1 * (1 - mean(xG)),
+                `% Rebound` = mean(is_Rebound),
+                `% Rush` = mean(is_Rush),
+                `% Miss` = mean(ifelse(Event %in% c("MISS"),1,0)),
+                `% Deflected` = mean(ifelse(Type %in% c("DEFLECTED"),1,0)),
+                `% Backhand` = mean(ifelse(Type %in% c("BACKHAND"),1,0)),
+                `% Wrist Shot` = mean(ifelse(Type %in% c("WRIST SHOT"),1,0)),
+                `% Slap Shot` = mean(ifelse(Type %in% c("SLAP SHOT"),1,0)),
+                `% Forward` = mean(ifelse(Player_Position2 == "F",1,0)))
+
+  return(out)
+  
+})
+
+# Calculate the common x and y range for geyser1 and geyser2
+xrng = range(shot_locations$x)
+yrng = range(shot_locations$y)
+
+
+league_density <- function(strength) {
+  
+    league_shot_locations <- shot_locations %>%
+      filter(Game_State %in% strength)
+
+    # Calculate the 2d density estimate over the common range
+    den_all = kde2d(league_shot_locations$x, league_shot_locations$y, lims=c(xrng, yrng), n=200)
+    
+    return(den_all)
+
+}
+
+ev_den <- league_density("5v5")
+
+goalie_density <- function(goalie, strength) {
+  
+    goalie_shot_locations <- shot_locations %>%
+      filter(SA_Goalie %in% goalie) %>%
+      filter(Game_State %in% strength)
+
+    den_goalie = kde2d(goalie_shot_locations$x, goalie_shot_locations$y, lims=c(xrng, yrng), n=200)
+
+    # Calculate the difference between the 2d density estimates
+    den_all = league_density(strength) 
+    diff_goalie = den_all
+    diff_goalie$z = den_goalie$z - den_all$z
+    
+    ## Melt data into long format
+    # First, add row and column names (x and y grid values) to the z-value matrix
+    rownames(diff_goalie$z) = diff_goalie$x
+    colnames(diff_goalie$z) = diff_goalie$y
+    
+    # Now melt it to long format
+    diff_goalie_mat = melt(diff_goalie$z, id.var=rownames(diff_goalie))
+    names(diff_goalie_mat) = c("x","y","z")
+
+    return(diff_goalie_mat)
+}
+
+goalie1_den <- reactive({
+
+  goalie <- input$select_goalies[1]
+  strength <- input$strength
+
+  mat <- goalie_density(goalie, strength)
+
+  return(mat)
+
+})
+
+goalie2_den <- reactive({
+
+  goalie <- input$select_goalies[2]
+  strength <- input$strength
+
+  mat <- goalie_density(goalie, strength)
+
+  return(mat)
+
+})
+```
+
+Sidebar {.sidebar}
+=====================================
+
+## Select Inputs
+
+```{r}
+
+output$goalie_input <- renderUI({
+  
+    goalie_list <- c('AARON DELL',	'ADAM WILCOX',	'ADIN HILL',	'AL MONTOYA',	'ALEX LYON',	'ALEX STALOCK',	'ALEXANDAR GEORGIEV',	'ANDERS NILSSON',	'ANDREI VASILEVSKIY',	'ANDREW HAMMOND',	'ANTON FORSBERG',	'ANTON KHUDOBIN',	'ANTTI NIEMI',	'ANTTI RAANTA',	'BEN BISHOP',	'BRADEN HOLTBY',	'BRANDON HALVERSON',	'BRIAN ELLIOTT',	'CALVIN PICKARD',	'CAM TALBOT',	'CAM WARD',	'CAREY PRICE',	'CARTER HUTTON',	'CASEY DESMITH',	'CHAD JOHNSON',	'CHARLIE LINDGREN',	'CHRISTOPHER GIBSON',	'COLLIN DELIA',	'CONNOR HELLEBUYCK',	'COREY CRAWFORD',	'CORY SCHNEIDER',	'CRAIG ANDERSON',	'CURTIS MCELHINNEY',	'DANIEL TAYLOR',	'DARCY KUEMPER',	'DAVID RITTICH',	'DEVAN DUBNYK',	'DYLAN FERGUSON',	'EDDIE LACK',	'ERIC COMRIE',	'FREDERIK ANDERSEN',	'HARRI SATERI',	'HENRIK LUNDQVIST',	'JACK CAMPBELL',	'JACOB MARKSTROM',	'JAKE ALLEN',	'JAMES REIMER',	'JARED COREAU',	'JAROSLAV HALAK',	'JEAN-FRANCOIS BERUBE',	'JEFF GLASS',	'JIMMY HOWARD',	'JOHN GIBSON',	'JON GILLIES',	'JONATHAN BERNIER',	'JONATHAN QUICK',	'JOONAS KORPISALO',	'JUUSE SAROS',	'KARI LEHTONEN',	'KEITH KINKAID',	'KEN APPLEBY',	'LAURENT BROSSOIT',	'LINUS ULLMARK',	'LOUIS DOMINGUE',	'MALCOLM SUBBAN',	'MARC-ANDRE FLEURY',	'MAREK LANGHAMER',	'MARTIN JONES',	'MATT MURRAY',	'MAXIME LAGACE',	'MICHAEL HUTCHINSON',	'MICHAL NEUVIRTH',	'MIKE CONDON',	'MIKE MCKENNA',	'MIKE SMITH',	'ONDREJ PAVELEC',	'OSCAR DANSK',	'PEKKA RINNE',	'PETER BUDAJ',	'PETR MRAZEK',	'PHILIPP GRUBAUER',	'RETO BERRA',	'ROBERTO LUONGO',	'ROBIN LEHNER',	'RYAN MILLER',	'SCOTT DARLING',	'SCOTT FOSTER',	'SCOTT WEDGEWOOD',	'SEMYON VARLAMOV',	'SERGEI BOBROVSKY',	'STEVE MASON',	'THATCHER DEMKO',	'THOMAS GREISS',	'TRISTAN JARRY',	'TUUKKA RASK')
+  
+    selectizeInput("select_goalies", "Select Goalies(s): ",
+                  goalie_list,
+                  multiple = TRUE,
+                  selected = c("HENRIK LUNDQVIST","SERGEI BOBROVSKY"),
+                  options = list(maxItems = 2)
+                  )
+})
+
+uiOutput("goalie_input")
+
+
+output$strength_input <- renderUI({
+  
+    strengths <- c("5v5","5v4")
+  
+    selectizeInput("strength", "Select Strength: ",
+                  strengths,
+                  multiple = TRUE,
+                  selected = c("5v5"),
+                  options = list(maxItems = 2)
+                  )
+})
+
+uiOutput("strength_input")
+
+
+```
+
+Goalie Dashboard
+============================================================================
+
+Row {data-height=800}
+-------------------------------------
+
+### Shot Map - Goalie 1
+
+```{r goalie1}
+
+renderPlot({
+
+  select_goalie <- input$select_goalies[1]
+  strength <- input$strength
+  
+  results <- goalie_results() %>% filter(SA_Goalie == select_goalie) %>% as.data.frame()
+
+  goalie_den <- goalie1_den()
+  names(goalie_den) = c("x","y","z")
+
+  location_map <- rink +
+    geom_tile(data = goalie_den %>% filter(x > 26 & x < 89), aes(x=x, y=y, fill=z, alpha=z)) +
+   scale_fill_gradient2(low = "#3366CC", high = "#DC3912", midpoint=0, labels = scales::percent) +
+    scale_alpha(range = c(0.5, 0.8), guide = FALSE) +
+    geom_jitter(data = goalie_locations() %>% filter(SA_Goalie == select_goalie) %>% filter(Event == "GOAL"),
+              aes(x=x,y=y, color = as.factor(Goal_Type)), size = 3) +
+    xlim(20,NA) +
+    ylim(-43,43) +
+    theme_standard() + ggthemes::scale_color_gdocs() + #ggthemes::scale_fill_gdocs() +
+    #theme(legend.position = "top") +
+    labs(title=paste0(select_goalie,"\n2017-18 ",glue::collapse(strength, sep = ", "), " Shots Locations Against\n",results$GA," Total Goals Against"),
+         x="",y="", fill="Shot Location\nRelative to League", color = "Goal Type") +
+    guides(alpha = FALSE)
+
+  location_map
+})
+```
+
+### Shot Map - Goalie 2
+
+```{r goalie2}
+
+renderPlot({
+
+  select_goalie <- input$select_goalies[2]
+  strength <- input$strength
+  
+  results <- goalie_results() %>% filter(SA_Goalie == select_goalie) %>% as.data.frame()
+
+  goalie_den <- goalie2_den()
+  names(goalie_den) = c("x","y","z")
+
+  location_map <- rink +
+    geom_tile(data = goalie_den %>% filter(x > 26 & x < 89), aes(x=x, y=y, fill=z, alpha=z)) +
+    scale_fill_gradient2(low = "#3366CC", high = "#DC3912", midpoint=0, labels = scales::percent) +
+     scale_alpha(range = c(0.5, 0.8), guide = FALSE) +
+    geom_jitter(data = goalie_locations() %>% filter(SA_Goalie == select_goalie) %>% filter(Event == "GOAL"),
+              aes(x=x,y=y, color = as.factor(Goal_Type)), size = 3) +
+    xlim(20,NA) +
+    ylim(-43,43) +
+    theme_standard() + ggthemes::scale_color_gdocs() + #ggthemes::scale_fill_gdocs() +
+    #theme(legend.position = "top") +
+    labs(title=paste0(select_goalie,"\n2017-18 ",glue::collapse(strength, sep = ", "), " Shots Locations Against\n",results$GA," Total Goals Against"),
+         x="",y="", fill="Shot Location\nRelative to League", color = "Goal Type") +
+    guides(alpha = FALSE)
+
+  location_map
+})
+
+```
+
+Row {data-height=100}
+-------------------------------------
+
+### Shot Breakdown - Goalie 1
+
+```{r}
+
+renderTable({
+  
+  select_goalie <- input$select_goalies[1]
+
+  shot_types() %>% 
+        filter(SA_Goalie == select_goalie) %>% 
+        as.data.frame() %>%
+        dplyr::select(-c(SA_Goalie))
+
+  
+})
+
+```
+
+
+### Shot Breakdown - Goalie 2
+
+```{r}
+
+renderTable({
+  
+  select_goalie <- input$select_goalies[2]
+
+  shot_types() %>% 
+        filter(SA_Goalie == select_goalie) %>% 
+        as.data.frame() %>%
+        dplyr::select(-c(SA_Goalie))
+
+})
+
+
+```
+
+Row {data-height=100}
+-------------------------------------
+
+### Results - Goalie 1
+
+```{r}
+
+renderTable({
+  
+  select_goalie <- input$select_goalies[1]
+
+  goalie_results() %>% 
+        filter(SA_Goalie == select_goalie) %>% 
+        as.data.frame() %>%
+        dplyr::rename(Goalie = SA_Goalie)
+
+  
+})
+
+```
+
+
+### Results - Goalie 2
+
+```{r}
+
+renderTable({
+  
+  select_goalie <- input$select_goalies[2]
+
+  goalie_results() %>% 
+        filter(SA_Goalie == select_goalie) %>% 
+        as.data.frame() %>%
+        dplyr::rename(Goalie = SA_Goalie)
+
+})
+
+
+```

@@ -1,0 +1,421 @@
+\documentclass[]{article}
+\usepackage{lmodern}
+\usepackage{amssymb,amsmath}
+\usepackage{ifxetex,ifluatex}
+\usepackage{fixltx2e} % provides \textsubscript
+\ifnum 0\ifxetex 1\fi\ifluatex 1\fi=0 % if pdftex
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+\else % if luatex or xelatex
+  \ifxetex
+    \usepackage{mathspec}
+  \else
+    \usepackage{fontspec}
+  \fi
+  \defaultfontfeatures{Ligatures=TeX,Scale=MatchLowercase}
+\fi
+% use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+% use microtype if available
+\IfFileExists{microtype.sty}{%
+\usepackage{microtype}
+\UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\hypersetup{unicode=true,
+            pdftitle={RVH\_Research},
+            pdfborder={0 0 0},
+            breaklinks=true}
+\urlstyle{same}  % don't use monospace font for urls
+\usepackage{color}
+\usepackage{fancyvrb}
+\newcommand{\VerbBar}{|}
+\newcommand{\VERB}{\Verb[commandchars=\\\{\}]}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+% Add ',fontsize=\small' for more characters per line
+\usepackage{framed}
+\definecolor{shadecolor}{RGB}{248,248,248}
+\newenvironment{Shaded}{\begin{snugshade}}{\end{snugshade}}
+\newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{#1}}
+\newcommand{\DecValTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\FloatTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\CharTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\StringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\ImportTok}[1]{#1}
+\newcommand{\CommentTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textit{#1}}}
+\newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\OtherTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{#1}}
+\newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\VariableTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.81,0.36,0.00}{\textbf{#1}}}
+\newcommand{\BuiltInTok}[1]{#1}
+\newcommand{\ExtensionTok}[1]{#1}
+\newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textit{#1}}}
+\newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.77,0.63,0.00}{#1}}
+\newcommand{\RegionMarkerTok}[1]{#1}
+\newcommand{\InformationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\WarningTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\AlertTok}[1]{\textcolor[rgb]{0.94,0.16,0.16}{#1}}
+\newcommand{\ErrorTok}[1]{\textcolor[rgb]{0.64,0.00,0.00}{\textbf{#1}}}
+\newcommand{\NormalTok}[1]{#1}
+\usepackage{graphicx,grffile}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+\IfFileExists{parskip.sty}{%
+\usepackage{parskip}
+}{% else
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt plus 2pt minus 1pt}
+}
+\setlength{\emergencystretch}{3em}  % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{0}
+% Redefines (sub)paragraphs to behave more like sections
+\ifx\paragraph\undefined\else
+\let\oldparagraph\paragraph
+\renewcommand{\paragraph}[1]{\oldparagraph{#1}\mbox{}}
+\fi
+\ifx\subparagraph\undefined\else
+\let\oldsubparagraph\subparagraph
+\renewcommand{\subparagraph}[1]{\oldsubparagraph{#1}\mbox{}}
+\fi
+
+%%% Use protect on footnotes to avoid problems with footnotes in titles
+\let\rmarkdownfootnote\footnote%
+\def\footnote{\protect\rmarkdownfootnote}
+
+%%% Change title format to be more compact
+\usepackage{titling}
+
+% Create subtitle command for use in maketitle
+\newcommand{\subtitle}[1]{
+  \posttitle{
+    \begin{center}\large#1\end{center}
+    }
+}
+
+\setlength{\droptitle}{-2em}
+  \title{RVH\_Research}
+  \pretitle{\vspace{\droptitle}\centering\huge}
+  \posttitle{\par}
+  \author{}
+  \preauthor{}\postauthor{}
+  \date{}
+  \predate{}\postdate{}
+
+
+\begin{document}
+\maketitle
+
+\subsection{RVH Research}\label{rvh-research}
+
+The Reverse Vertical Horizontal (RVH) has become a popular goaltending
+tactic in recent years, from minor hockey to the NHL. Generally a
+blocking tactic, the goaltender seals the post pad along the ice while
+anchoring and rotating with the back foot. This tactic gained popularity
+in the early 2010's, used to repel attacks from bad angles. This was
+Used properly, the sealed pad could
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{## Load data}
+\KeywordTok{load}\NormalTok{(}\StringTok{"~/Documents/CWA/Hockey Data/goalie_shot_level_prep.RData"}\NormalTok{)}
+
+\NormalTok{## Print columns}
+\KeywordTok{colnames}\NormalTok{(goalie_shot_level_prep)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+##   [1] "xG_raw"                       "xR"                          
+##   [3] "Away_Coach"                   "Away_Goalie"                 
+##   [5] "Away_Goalie_Id"               "Away_Players"                
+##   [7] "Away_Score"                   "Away_Team"                   
+##   [9] "Date"                         "Description"                 
+##  [11] "Ev_Team"                      "Ev_Zone"                     
+##  [13] "Event"                        "Game_Id"                     
+##  [15] "Home_Coach"                   "Home_Goalie"                 
+##  [17] "Home_Goalie_Id"               "Home_Players"                
+##  [19] "Home_Score"                   "Home_Team"                   
+##  [21] "Home_Zone"                    "Period"                      
+##  [23] "Seconds_Elapsed"              "Strength"                    
+##  [25] "Time_Elapsed"                 "Type"                        
+##  [27] "awayPlayer1"                  "awayPlayer1_id"              
+##  [29] "awayPlayer2"                  "awayPlayer2_id"              
+##  [31] "awayPlayer3"                  "awayPlayer3_id"              
+##  [33] "awayPlayer4"                  "awayPlayer4_id"              
+##  [35] "awayPlayer5"                  "awayPlayer5_id"              
+##  [37] "awayPlayer6"                  "awayPlayer6_id"              
+##  [39] "homePlayer1"                  "homePlayer1_id"              
+##  [41] "homePlayer2"                  "homePlayer2_id"              
+##  [43] "homePlayer3"                  "homePlayer3_id"              
+##  [45] "homePlayer4"                  "homePlayer4_id"              
+##  [47] "homePlayer5"                  "homePlayer5_id"              
+##  [49] "homePlayer6"                  "homePlayer6_id"              
+##  [51] "p1_ID"                        "p1_name"                     
+##  [53] "p2_ID"                        "p2_name"                     
+##  [55] "p3_ID"                        "p3_name"                     
+##  [57] "xC"                           "yC"                          
+##  [59] "season"                       "season2"                     
+##  [61] "Season_Type"                  "season_model"                
+##  [63] "lagged_Event"                 "lagged_Ev_Zone"              
+##  [65] "lagged_Seconds_Elapsed"       "lagged_xC"                   
+##  [67] "lagged_yC"                    "Goal"                        
+##  [69] "EmptyNet_SA"                  "is_Rebound"                  
+##  [71] "is_Bounce"                    "is_Rush"                     
+##  [73] "Home_Shooter"                 "Direction"                   
+##  [75] "X_unadj"                      "Y_unadj"                     
+##  [77] "LS_Shot"                      "LN_Last_Event_Time"          
+##  [79] "LastEV_Off_Faceoff"           "LastEV_Def_Faceoff"          
+##  [81] "LastEV_Neu_Faceoff"           "LastEV_Off_Shot"             
+##  [83] "LastEV_Def_Shot"              "LastEV_Neu_Shot"             
+##  [85] "LastEV_Off_Give"              "LastEV_Def_Give"             
+##  [87] "LastEV_Neu_Give"              "LastEV_Distance"             
+##  [89] "LastEV_FtperSec_Change"       "LastEV_Angle_Change"         
+##  [91] "LastEV_AngleperSec_Change"    "LN_LastEV_AngleperFt_Change" 
+##  [93] "LN_LastEV_FtperSec_Change"    "LN_LastEV_AngleperSec_Change"
+##  [95] "X"                            "Y"                           
+##  [97] "Shot_Distance_Unadj"          "Shot_Distance"               
+##  [99] "Shot_Angle"                   "Last_Shot_Distance"          
+## [101] "Last_Shot_Angle"              "Last_LS_Shot"                
+## [103] "Rebound_Distance_Change"      "Rebound_Angle_Change"        
+## [105] "Rebound_Angular_Velocity"     "LN_Rebound_Angular_Velocity" 
+## [107] "SA_Goalie_Id"                 "Away_State"                  
+## [109] "Home_State"                   "Results_inRebound"           
+## [111] "Shooter_State"                "Goalie_State"                
+## [113] "Game_State"                   "State_Space"                 
+## [115] "Shooter_State_Advantage"      "shooterDOB"                  
+## [117] "Player_Position"              "Shoots"                      
+## [119] "goalieDOB"                    "playerPositionCode"          
+## [121] "Catches"                      "Shooter_Handedness"          
+## [123] "Handed_Class"                 "Handed_Class2"               
+## [125] "Player_Position2"             "Cum_Goal"                    
+## [127] "Cum_Shots"                    "Regressed_Shooting_Indexed"  
+## [129] "xG"                           "xG_team"                     
+## [131] "SA_Goalie"                    "Replacement"                 
+## [133] "SA_Team"                      "NonRebound_Shot"             
+## [135] "xG_FirstShot"                 "rebound_goal_probability"    
+## [137] "dob"                          "Age"
+\end{verbatim}
+
+\subsection{Select shots and variables we care
+about}\label{select-shots-and-variables-we-care-about}
+
+We only care about bad angle shots where a goalie might select the RVH
+tactic. Flag and limit to shots in trapazoids on either side of the net.
+Create variables regarding rebounds, rebounds xG, and rebound shooting
+percentage. Plot on rink
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{rink <-}\StringTok{ }\KeywordTok{fun.draw_rink}\NormalTok{() }\OperatorTok{+}\StringTok{ }\KeywordTok{coord_fixed}\NormalTok{()}
+
+\NormalTok{## Take all shots and create features}
+\NormalTok{all_nonrush_shots <-}\StringTok{ }\NormalTok{goalie_shot_level_prep }\OperatorTok{%>%}
+\StringTok{      }\KeywordTok{arrange}\NormalTok{(season, Game_Id, Seconds_Elapsed) }\OperatorTok{%>%}
+\StringTok{      }\NormalTok{## Flag if shot coordinate}
+\StringTok{      }\KeywordTok{filter}\NormalTok{(EmptyNet_SA }\OperatorTok{==}\StringTok{ }\DecValTok{0}\NormalTok{) }\OperatorTok{%>%}
+\StringTok{      }\NormalTok{## Remove rush shots}
+\StringTok{      }\KeywordTok{filter}\NormalTok{(is_Rush }\OperatorTok{==}\StringTok{ }\DecValTok{0}\NormalTok{) }\OperatorTok{%>%}
+\StringTok{      }\NormalTok{## Orient all shots on same end of rink}
+\StringTok{      }\KeywordTok{mutate}\NormalTok{(}\DataTypeTok{xC =} \KeywordTok{ifelse}\NormalTok{(Direction }\OperatorTok{==}\StringTok{ }\DecValTok{1}\NormalTok{, xC, }\OperatorTok{-}\DecValTok{1} \OperatorTok{*}\StringTok{ }\NormalTok{xC),}
+             \DataTypeTok{yC =} \KeywordTok{ifelse}\NormalTok{(Direction }\OperatorTok{==}\StringTok{ }\DecValTok{1}\NormalTok{, yC, }\OperatorTok{-}\DecValTok{1} \OperatorTok{*}\StringTok{ }\NormalTok{yC),}
+             \DataTypeTok{Results_inRebound =} \KeywordTok{ifelse}\NormalTok{(Results_inRebound }\OperatorTok{==}\StringTok{ }\DecValTok{1} \OperatorTok{&}\StringTok{ }\KeywordTok{lead}\NormalTok{(Shot_Distance) }\OperatorTok{<=}\StringTok{ }\DecValTok{30}\NormalTok{, }\DecValTok{1}\NormalTok{, }\DecValTok{0}\NormalTok{)) }\OperatorTok{%>%}
+\StringTok{      }\NormalTok{## Limit variables}
+\StringTok{      }\KeywordTok{select}\NormalTok{(xC, yC, is_Rebound, Results_inRebound, xR, Goal, SA_Goalie, Player_Position2, p1_name, season, Game_Id, Seconds_Elapsed, lagged_Event, Type, Strength, xG, Shooter_Handedness, Handed_Class, Game_State, Shot_Distance) }\OperatorTok{%>%}
+\StringTok{      }\NormalTok{## Create variables}
+\StringTok{      }\KeywordTok{mutate}\NormalTok{(}\DataTypeTok{bad_angle =} \KeywordTok{ifelse}\NormalTok{(((}\KeywordTok{abs}\NormalTok{(yC) }\OperatorTok{>}\StringTok{ }\DecValTok{5}\NormalTok{) }\OperatorTok{&}\StringTok{ }\NormalTok{(xC }\OperatorTok{<=}\StringTok{ }\DecValTok{89}\NormalTok{) }\OperatorTok{&}\StringTok{ }\NormalTok{(xC }\OperatorTok{>=}\DecValTok{79}\NormalTok{) }\OperatorTok{&}\StringTok{ }\NormalTok{(xC }\OperatorTok{>=}\StringTok{ }\NormalTok{(}\DecValTok{89} \OperatorTok{-}\StringTok{ }\NormalTok{(}\FloatTok{0.5} \OperatorTok{*}\StringTok{ }\KeywordTok{abs}\NormalTok{(yC))))) }\OperatorTok{|}\StringTok{ }\NormalTok{xC }\OperatorTok{>}\StringTok{ }\DecValTok{189}
+\NormalTok{                                  , }\DecValTok{1}\NormalTok{, }\DecValTok{0}\NormalTok{),}
+             \CommentTok{#center_ice_rebound = ifelse(bad_angle == 1 & Results_inRebound == 1 & lead(abs(yC) < 10) == 0, 1, 0),}
+             \DataTypeTok{rebound_xG =} \KeywordTok{ifelse}\NormalTok{(bad_angle }\OperatorTok{==}\StringTok{ }\DecValTok{1} \OperatorTok{&}\StringTok{ }\NormalTok{Results_inRebound }\OperatorTok{==}\StringTok{ }\DecValTok{1}\NormalTok{, }\KeywordTok{lead}\NormalTok{(xG), }\OtherTok{NA}\NormalTok{),}
+             \DataTypeTok{rebound_actualG =} \KeywordTok{ifelse}\NormalTok{(bad_angle }\OperatorTok{==}\StringTok{ }\DecValTok{1} \OperatorTok{&}\StringTok{ }\NormalTok{Results_inRebound }\OperatorTok{==}\StringTok{ }\DecValTok{1}\NormalTok{, }\KeywordTok{lead}\NormalTok{(Goal), }\OtherTok{NA}\NormalTok{),}
+             \DataTypeTok{rebound_yC =} \KeywordTok{ifelse}\NormalTok{(bad_angle }\OperatorTok{==}\StringTok{ }\DecValTok{1} \OperatorTok{&}\StringTok{ }\NormalTok{Results_inRebound }\OperatorTok{==}\StringTok{ }\DecValTok{1}\NormalTok{, }\KeywordTok{lead}\NormalTok{(yC), }\OtherTok{NA}\NormalTok{),}
+             \DataTypeTok{rebound_xC =} \KeywordTok{ifelse}\NormalTok{(bad_angle }\OperatorTok{==}\StringTok{ }\DecValTok{1} \OperatorTok{&}\StringTok{ }\NormalTok{Results_inRebound }\OperatorTok{==}\StringTok{ }\DecValTok{1}\NormalTok{, }\KeywordTok{lead}\NormalTok{(xC), }\OtherTok{NA}\NormalTok{),}
+             \DataTypeTok{strong_hand_shooter =} \KeywordTok{ifelse}\NormalTok{((yC }\OperatorTok{<}\StringTok{ }\DecValTok{0} \OperatorTok{&}\StringTok{ }\NormalTok{Shooter_Handedness }\OperatorTok{==}\StringTok{ "L"}\NormalTok{) }\OperatorTok{|}\StringTok{ }\NormalTok{(yC }\OperatorTok{>}\StringTok{ }\DecValTok{0} \OperatorTok{&}\StringTok{ }\NormalTok{Shooter_Handedness }\OperatorTok{==}\StringTok{ "R"}\NormalTok{),}
+                                          \StringTok{"Strong"}\NormalTok{, }\StringTok{"Weak"}\NormalTok{)}
+\NormalTok{) }
+
+\NormalTok{## Limit to bad angle shots}
+\NormalTok{bad_angle_shots <-}\StringTok{ }\NormalTok{all_nonrush_shots }\OperatorTok{%>%}
+\StringTok{      }\KeywordTok{filter}\NormalTok{(bad_angle }\OperatorTok{==}\StringTok{ }\DecValTok{1}\NormalTok{ )}
+
+      
+\NormalTok{## Plot shots  }
+\NormalTok{rink_wshots <-}\StringTok{ }\NormalTok{rink }\OperatorTok{+}\StringTok{ }\KeywordTok{geom_point}\NormalTok{(}\KeywordTok{aes}\NormalTok{(}\DataTypeTok{x =}\NormalTok{ xC, }\DataTypeTok{y =}\NormalTok{ yC, }\DataTypeTok{color =} \KeywordTok{as.factor}\NormalTok{(Goal)), }\DataTypeTok{alpha =} \FloatTok{0.2}\NormalTok{,}
+                  \DataTypeTok{data =}\NormalTok{ bad_angle_shots) }\OperatorTok{+}
+\StringTok{        }\NormalTok{ggthemes}\OperatorTok{::}\KeywordTok{scale_color_gdocs}\NormalTok{() }\OperatorTok{+}
+\StringTok{        }\KeywordTok{labs}\NormalTok{(}\DataTypeTok{color =} \StringTok{"Goal?"}\NormalTok{)}
+
+\NormalTok{rink_wshots}
+\end{Highlighting}
+\end{Shaded}
+
+\includegraphics{RVH_Research_files/figure-latex/unnamed-chunk-4-1.pdf}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{## Plot rebound density  }
+\NormalTok{rink_rebounds <-}\StringTok{ }\NormalTok{rink }\OperatorTok{+}\StringTok{ }\KeywordTok{geom_point}\NormalTok{(}\KeywordTok{aes}\NormalTok{(}\DataTypeTok{x =}\NormalTok{ rebound_xC, }\DataTypeTok{y =}\NormalTok{ rebound_yC, }\DataTypeTok{color =} \KeywordTok{as.factor}\NormalTok{(Goal)), }\DataTypeTok{alpha =} \FloatTok{0.2}\NormalTok{,}
+                  \DataTypeTok{data =}\NormalTok{ bad_angle_shots) }\OperatorTok{+}
+\StringTok{        }\NormalTok{ggthemes}\OperatorTok{::}\KeywordTok{scale_color_gdocs}\NormalTok{() }\OperatorTok{+}
+\StringTok{        }\KeywordTok{labs}\NormalTok{(}\DataTypeTok{color =} \StringTok{"Goal?"}\NormalTok{)}
+
+\NormalTok{rink_rebounds}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning: Removed 43685 rows containing missing values (geom_point).
+\end{verbatim}
+
+\includegraphics{RVH_Research_files/figure-latex/unnamed-chunk-4-2.pdf}
+
+Note that the \texttt{echo\ =\ FALSE} parameter was added to the code
+chunk to prevent printing of the R code that generated the plot.
+
+\subsubsection{Calculate Sv\% and Rebound\% From Bad Angle
+Shots}\label{calculate-sv-and-rebound-from-bad-angle-shots}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{bad_angle_shots_sums <-}\StringTok{ }\NormalTok{bad_angle_shots }\OperatorTok{%>%}
+\StringTok{      }\KeywordTok{filter}\NormalTok{(Game_State }\OperatorTok{%in%}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"5v4"}\NormalTok{,}\StringTok{"5v5"}\NormalTok{)) }\OperatorTok{%>%}
+\StringTok{        }\KeywordTok{filter}\NormalTok{(bad_angle }\OperatorTok{==}\StringTok{ }\DecValTok{1}\NormalTok{) }\OperatorTok{%>%}
+\StringTok{      }\KeywordTok{group_by}\NormalTok{(season, Game_State) }\OperatorTok{%>%}
+\StringTok{      }\KeywordTok{summarise}\NormalTok{(}\StringTok{`}\DataTypeTok{Bad Angle Attempts}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{n}\NormalTok{(),}
+                \CommentTok{#`Bad Angle Shooting %` = mean(Goal),}
+                \StringTok{`}\DataTypeTok{Bad Angle Shooting % - Mean}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{likelihood_mean_fun}\NormalTok{(}\KeywordTok{n}\NormalTok{()}\OperatorTok{-}\KeywordTok{sum}\NormalTok{(Goal),}\KeywordTok{n}\NormalTok{()),}
+                \StringTok{`}\DataTypeTok{Bad Angle Shooting % - StdDev}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{likelihood_std_fun}\NormalTok{(}\KeywordTok{n}\NormalTok{()}\OperatorTok{-}\KeywordTok{sum}\NormalTok{(Goal),}\KeywordTok{n}\NormalTok{()),}
+                \CommentTok{#`Bad Angle Rebound %` = mean(Results_inRebound),}
+                \StringTok{`}\DataTypeTok{Bad Angle Rebound % - Mean}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{likelihood_mean_fun}\NormalTok{(}\KeywordTok{n}\NormalTok{()}\OperatorTok{-}\KeywordTok{sum}\NormalTok{(Results_inRebound),}\KeywordTok{n}\NormalTok{()),}
+                \StringTok{`}\DataTypeTok{Bad Angle Rebound % - StdDev}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{likelihood_std_fun}\NormalTok{(}\KeywordTok{n}\NormalTok{()}\OperatorTok{-}\KeywordTok{sum}\NormalTok{(Results_inRebound),}\KeywordTok{n}\NormalTok{()),}
+                
+                \CommentTok{#`Bad Angle Rebound Shooting %` = mean(rebound_actualG,na.rm=T),}
+                \StringTok{`}\DataTypeTok{Bad Angle Rebound Shooting % - Mean}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{likelihood_mean_fun}\NormalTok{(}\KeywordTok{sum}\NormalTok{(Results_inRebound)}\OperatorTok{-}\KeywordTok{sum}\NormalTok{(rebound_actualG,}\DataTypeTok{na.rm =}\NormalTok{ T),}\KeywordTok{sum}\NormalTok{(Results_inRebound)),}
+                \StringTok{`}\DataTypeTok{Bad Angle Rebound Shooting % - StdDev}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{likelihood_std_fun}\NormalTok{(}\KeywordTok{sum}\NormalTok{(Results_inRebound)}\OperatorTok{-}\KeywordTok{sum}\NormalTok{(rebound_actualG,}\DataTypeTok{na.rm =}\NormalTok{ T),}\KeywordTok{sum}\NormalTok{(Results_inRebound)),}
+                
+                \CommentTok{#`Bad Angle Rebound % (Center Ice)` = mean(center_ice_rebound),}
+                \StringTok{`}\DataTypeTok{Bad Angle Rebound Shooting %}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{mean}\NormalTok{(rebound_xG,}\DataTypeTok{na.rm=}\NormalTok{T),}
+                \StringTok{`}\DataTypeTok{Bad Angle Shooting % - Expected}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{mean}\NormalTok{(Goal) }\OperatorTok{-}\StringTok{ }\KeywordTok{mean}\NormalTok{(xG),}
+                \StringTok{`}\DataTypeTok{Bad Angle Rebound % - Expected}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{mean}\NormalTok{(Results_inRebound) }\OperatorTok{-}\StringTok{ }\KeywordTok{mean}\NormalTok{(xR)) }\OperatorTok{%>%}
+\StringTok{      }\KeywordTok{left_join}\NormalTok{(all_nonrush_shots }\OperatorTok{%>%}\StringTok{ }\KeywordTok{group_by}\NormalTok{(season, Game_State) }\OperatorTok{%>%}
+\StringTok{                   }\KeywordTok{summarise}\NormalTok{(}\DataTypeTok{total_shots =} \KeywordTok{n}\NormalTok{()), }\DataTypeTok{by =} \KeywordTok{c}\NormalTok{(}\StringTok{"season"}\NormalTok{,}\StringTok{"Game_State"}\NormalTok{)) }\OperatorTok{%>%}
+\StringTok{      }\KeywordTok{mutate}\NormalTok{(}\StringTok{`}\DataTypeTok{Bad Angle Attempts / All NonRush Shots - Mean}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{likelihood_mean_fun}\NormalTok{(total_shots}\OperatorTok{-}\KeywordTok{sum}\NormalTok{(}\StringTok{`}\DataTypeTok{Bad Angle Attempts}\StringTok{`}\NormalTok{),total_shots),}
+             \StringTok{`}\DataTypeTok{Bad Angle Attempts / All NonRush Shots - StdDev}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{likelihood_std_fun}\NormalTok{(total_shots}\OperatorTok{-}\KeywordTok{sum}\NormalTok{(}\StringTok{`}\DataTypeTok{Bad Angle Attempts}\StringTok{`}\NormalTok{),total_shots)}
+\NormalTok{             ) }\OperatorTok{%>%}\StringTok{ }
+\StringTok{      }\KeywordTok{select}\NormalTok{(}\OperatorTok{-}\KeywordTok{c}\NormalTok{(total_shots))}
+
+\NormalTok{bad_angle_shots_line_plot <-}\StringTok{ }\NormalTok{bad_angle_shots_sums }\OperatorTok{%>%}
+\StringTok{    }\KeywordTok{select}\NormalTok{(}\OperatorTok{-}\KeywordTok{c}\NormalTok{(}\StringTok{`}\DataTypeTok{Bad Angle Shooting % - Expected}\StringTok{`}\NormalTok{,}\StringTok{`}\DataTypeTok{Bad Angle Rebound % - Expected}\StringTok{`}\NormalTok{)) }\OperatorTok{%>%}
+\StringTok{    }\KeywordTok{melt}\NormalTok{(}\DataTypeTok{id.var =} \KeywordTok{c}\NormalTok{(}\StringTok{"season"}\NormalTok{,}\StringTok{"Game_State"}\NormalTok{)) }\OperatorTok{%>%}
+\StringTok{    }\NormalTok{tidyr}\OperatorTok{::}\KeywordTok{separate}\NormalTok{(variable, }\KeywordTok{c}\NormalTok{(}\StringTok{"Metric"}\NormalTok{,}\StringTok{"Measure"}\NormalTok{), }\DataTypeTok{sep =} \StringTok{"[-]"}\NormalTok{, }\DataTypeTok{remove=}\NormalTok{T) }\OperatorTok{%>%}
+\StringTok{    }\KeywordTok{na.omit}\NormalTok{() }\OperatorTok{%>%}
+\StringTok{    }\KeywordTok{dcast}\NormalTok{(season }\OperatorTok{+}\StringTok{ }\NormalTok{Game_State }\OperatorTok{+}\StringTok{ }\NormalTok{Metric }\OperatorTok{~}\StringTok{ }\KeywordTok{trimws}\NormalTok{(Measure), }\DataTypeTok{value.var =} \StringTok{"value"}\NormalTok{) }\OperatorTok{%>%}
+\StringTok{    }\KeywordTok{group_by}\NormalTok{(Metric, Game_State) }\OperatorTok{%>%}
+\StringTok{    }\KeywordTok{mutate}\NormalTok{(}\DataTypeTok{Percentile =} \KeywordTok{percent_rank}\NormalTok{(}\StringTok{`}\DataTypeTok{Mean}\StringTok{`}\NormalTok{)) }\OperatorTok{%>%}
+\StringTok{    }\CommentTok{#       Class = ifelse(variable %in% c("Bad Angle Shooting % - Expected","Bad Angle Rebound % - Expected"), "Delta Measure", "Percentage Measure")) %>%}
+\StringTok{    }\CommentTok{#filter(!Metric == "Bad Angle Rebound Shooting % ") %>%}
+\StringTok{    }\KeywordTok{ggplot}\NormalTok{(}\KeywordTok{aes}\NormalTok{(}\DataTypeTok{x=}\KeywordTok{as.factor}\NormalTok{(season), }\DataTypeTok{y=}\NormalTok{Mean, }\DataTypeTok{color=}\KeywordTok{as.factor}\NormalTok{(Metric),}
+               \CommentTok{#label = ifelse(value > 1, paste0(round(value,1)), paste0(round(value,3)*100,"%"))}
+\NormalTok{               )) }\OperatorTok{+}
+\StringTok{    }\KeywordTok{geom_hline}\NormalTok{(}\DataTypeTok{yintercept =} \DecValTok{0}\NormalTok{, }\DataTypeTok{color =} \StringTok{"grey50"}\NormalTok{, }\DataTypeTok{size =} \DecValTok{4}\NormalTok{) }\OperatorTok{+}
+\StringTok{    }\KeywordTok{geom_line}\NormalTok{(}\DataTypeTok{size =} \DecValTok{5}\NormalTok{) }\OperatorTok{+}
+\StringTok{    }\KeywordTok{geom_errorbar}\NormalTok{(}\KeywordTok{aes}\NormalTok{(}\DataTypeTok{ymin=}\NormalTok{Mean}\OperatorTok{-}\NormalTok{StdDev, }\DataTypeTok{ymax=}\NormalTok{Mean}\OperatorTok{+}\NormalTok{StdDev), }\DataTypeTok{width=}\NormalTok{.}\DecValTok{1}\NormalTok{, }\DataTypeTok{position=}\KeywordTok{position_dodge}\NormalTok{(}\FloatTok{0.1}\NormalTok{), }\DataTypeTok{size =} \DecValTok{6}\NormalTok{, }\DataTypeTok{alpha =} \FloatTok{0.5}\NormalTok{) }\OperatorTok{+}
+\StringTok{    }\CommentTok{#ggrepel::geom_label_repel() +}
+\StringTok{    }\KeywordTok{facet_grid}\NormalTok{(.}\OperatorTok{~}\NormalTok{Game_State, }\DataTypeTok{scales =} \StringTok{"free_y"}\NormalTok{) }\OperatorTok{+}
+\StringTok{    }\NormalTok{ggthemes}\OperatorTok{::}\KeywordTok{scale_color_gdocs}\NormalTok{() }\OperatorTok{+}
+\StringTok{    }\KeywordTok{theme_standard}\NormalTok{() }\OperatorTok{+}
+\StringTok{    }\KeywordTok{scale_y_continuous}\NormalTok{(}\DataTypeTok{labels =}\NormalTok{ scales}\OperatorTok{::}\NormalTok{percent) }\OperatorTok{+}\StringTok{ }
+\StringTok{    }\KeywordTok{labs}\NormalTok{(}\DataTypeTok{y=}\StringTok{""}\NormalTok{,}\DataTypeTok{x=}\StringTok{"Season"}\NormalTok{,}\DataTypeTok{color =} \StringTok{""}\NormalTok{,}
+         \DataTypeTok{title =} \StringTok{"Bad Angle Shots, Shooting % and Rebound %}\CharTok{\textbackslash{}n}\StringTok{5v5 and 5v4, 2010 - 2018}\CharTok{\textbackslash{}n}\StringTok{@crowdscoutsprts (github.com/C92Anderson/xG-Model)"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning: Expected 2 pieces. Missing pieces filled with `NA` in 32 rows
+## [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 113, 114, 115,
+## 116, ...].
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{ggsave}\NormalTok{(}\DataTypeTok{filename =} \StringTok{"/Users/colander1/Downloads/bad_angle_shots_line_plot.png"}\NormalTok{, }\DataTypeTok{plot =}\NormalTok{ bad_angle_shots_line_plot, }\DataTypeTok{height =} \DecValTok{12}\NormalTok{, }\DataTypeTok{width =} \DecValTok{16}\NormalTok{)}
+
+\NormalTok{bad_angle_shots_line_plot}
+\end{Highlighting}
+\end{Shaded}
+
+\includegraphics{RVH_Research_files/figure-latex/unnamed-chunk-5-1.pdf}
+
+\subsubsection{Calculate Sv\% and Rebound\% From Bad Angle
+Shots}\label{calculate-sv-and-rebound-from-bad-angle-shots-1}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{bad_angle_shots_sums <-}\StringTok{ }\NormalTok{bad_angle_shots }\OperatorTok{%>%}
+\StringTok{      }\KeywordTok{filter}\NormalTok{(Game_State }\OperatorTok{%in%}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"5v4"}\NormalTok{,}\StringTok{"5v5"}\NormalTok{)) }\OperatorTok{%>%}
+\StringTok{      }\KeywordTok{filter}\NormalTok{(bad_angle }\OperatorTok{==}\StringTok{ }\DecValTok{1}\NormalTok{) }\OperatorTok{%>%}
+\StringTok{      }\KeywordTok{group_by}\NormalTok{(season, Game_State, strong_hand_shooter) }\OperatorTok{%>%}
+\StringTok{      }\KeywordTok{summarise}\NormalTok{(}\StringTok{`}\DataTypeTok{Total Shots}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{n}\NormalTok{(),}
+                \StringTok{`}\DataTypeTok{Bad Angle Attempts / All Non-Rush Shots}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{n}\NormalTok{(),}
+                \StringTok{`}\DataTypeTok{Bad Angle Shooting %}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{mean}\NormalTok{(Goal),}
+                \StringTok{`}\DataTypeTok{Bad Angle Rebound %}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{mean}\NormalTok{(Results_inRebound),}
+                \CommentTok{#`Bad Angle Rebound % (Center Ice)` = mean(center_ice_rebound),}
+                \StringTok{`}\DataTypeTok{Bad Angle Shooting % - Expected}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{mean}\NormalTok{(Goal) }\OperatorTok{-}\StringTok{ }\KeywordTok{mean}\NormalTok{(xG),}
+                \StringTok{`}\DataTypeTok{Bad Angle Rebound % - Expected}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{mean}\NormalTok{(Results_inRebound) }\OperatorTok{-}\StringTok{ }\KeywordTok{mean}\NormalTok{(xR)) }\OperatorTok{%>%}
+\StringTok{      }\KeywordTok{left_join}\NormalTok{(all_nonrush_shots }\OperatorTok{%>%}\StringTok{ }\KeywordTok{group_by}\NormalTok{(season, Game_State,strong_hand_shooter) }\OperatorTok{%>%}
+\StringTok{                   }\KeywordTok{summarise}\NormalTok{(}\DataTypeTok{total_shots =} \KeywordTok{n}\NormalTok{()), }\DataTypeTok{by =} \KeywordTok{c}\NormalTok{(}\StringTok{"season"}\NormalTok{,}\StringTok{"Game_State"}\NormalTok{,}\StringTok{"strong_hand_shooter"}\NormalTok{)) }\OperatorTok{%>%}
+\StringTok{      }\KeywordTok{mutate}\NormalTok{(}\StringTok{`}\DataTypeTok{Bad Angle Attempts / All Non-Rush Shots}\StringTok{`}\NormalTok{ =}\StringTok{ `}\DataTypeTok{Bad Angle Attempts / All Non-Rush Shots}\StringTok{`} \OperatorTok{/}\StringTok{ }\NormalTok{total_shots) }\OperatorTok{%>%}\StringTok{ }
+\StringTok{      }\KeywordTok{select}\NormalTok{(}\OperatorTok{-}\KeywordTok{c}\NormalTok{(total_shots))}
+
+
+\NormalTok{bad_angle_shots_line_plot <-}\StringTok{ }\NormalTok{bad_angle_shots_sums }\OperatorTok{%>%}
+\StringTok{    }\KeywordTok{select}\NormalTok{(}\OperatorTok{-}\KeywordTok{c}\NormalTok{(}\StringTok{`}\DataTypeTok{Total Shots}\StringTok{`}\NormalTok{)) }\OperatorTok{%>%}
+\StringTok{    }\KeywordTok{melt}\NormalTok{(}\DataTypeTok{id.var =} \KeywordTok{c}\NormalTok{(}\StringTok{"season"}\NormalTok{,}\StringTok{"Game_State"}\NormalTok{,}\StringTok{"strong_hand_shooter"}\NormalTok{)) }\OperatorTok{%>%}
+\StringTok{    }\KeywordTok{group_by}\NormalTok{(variable, strong_hand_shooter, Game_State) }\OperatorTok{%>%}
+\StringTok{    }\KeywordTok{mutate}\NormalTok{(}\StringTok{`}\DataTypeTok{Percentile}\StringTok{`}\NormalTok{ =}\StringTok{ }\KeywordTok{percent_rank}\NormalTok{(value)) }\OperatorTok{%>%}
+\StringTok{    }\KeywordTok{filter}\NormalTok{(}\OperatorTok{!}\NormalTok{variable }\OperatorTok{%in%}\StringTok{ }\KeywordTok{c}\NormalTok{(}\StringTok{"Bad Angle Shooting % - Expected"}\NormalTok{,}\StringTok{"Bad Angle Rebound % - Expected"}\NormalTok{)) }\OperatorTok{%>%}
+\StringTok{    }\CommentTok{#       Class = ifelse(variable %in% c("Bad Angle Shooting % - Expected","Bad Angle Rebound % - Expected"), "Delta Measure", "Percentage Measure")) %>%}
+\StringTok{    }\KeywordTok{ggplot}\NormalTok{(}\KeywordTok{aes}\NormalTok{(}\DataTypeTok{x=}\KeywordTok{as.factor}\NormalTok{(season), }\DataTypeTok{y=}\NormalTok{value, }\DataTypeTok{color=}\KeywordTok{as.factor}\NormalTok{(variable),}
+               \CommentTok{#label = ifelse(value > 1, paste0(round(value,1)), paste0(round(value,3)*100,"%"))}
+\NormalTok{               )) }\OperatorTok{+}
+\StringTok{    }\KeywordTok{geom_hline}\NormalTok{(}\DataTypeTok{yintercept =} \DecValTok{0}\NormalTok{, }\DataTypeTok{color =} \StringTok{"grey50"}\NormalTok{, }\DataTypeTok{size =} \DecValTok{4}\NormalTok{) }\OperatorTok{+}
+\StringTok{    }\KeywordTok{geom_line}\NormalTok{(}\DataTypeTok{size =} \DecValTok{5}\NormalTok{) }\OperatorTok{+}
+\StringTok{    }\CommentTok{#ggrepel::geom_label_repel() +}
+\StringTok{    }\KeywordTok{facet_grid}\NormalTok{(strong_hand_shooter}\OperatorTok{~}\NormalTok{Game_State, }\DataTypeTok{scales =} \StringTok{"free_y"}\NormalTok{) }\OperatorTok{+}
+\StringTok{    }\NormalTok{ggthemes}\OperatorTok{::}\KeywordTok{scale_color_gdocs}\NormalTok{() }\OperatorTok{+}
+\StringTok{    }\KeywordTok{theme_standard}\NormalTok{() }\OperatorTok{+}
+\StringTok{    }\KeywordTok{scale_y_continuous}\NormalTok{(}\DataTypeTok{labels =}\NormalTok{ scales}\OperatorTok{::}\NormalTok{percent) }\OperatorTok{+}\StringTok{ }
+\StringTok{    }\KeywordTok{labs}\NormalTok{(}\DataTypeTok{y=}\StringTok{""}\NormalTok{,}\DataTypeTok{x=}\StringTok{"Season"}\NormalTok{,}\DataTypeTok{color =} \StringTok{""}\NormalTok{,}
+         \DataTypeTok{title =} \StringTok{"Bad Angle Shots, Shooting % and Rebound %}\CharTok{\textbackslash{}n}\StringTok{5v5 and 5v4, 2010 - 2018}\CharTok{\textbackslash{}n}\StringTok{@crowdscoutsprts (github.com/C92Anderson/xG-Model)"}\NormalTok{)}
+
+\KeywordTok{ggsave}\NormalTok{(}\DataTypeTok{filename =} \StringTok{"/Users/colander1/Downloads/bad_angle_handedshots_line_plot.png"}\NormalTok{, }\DataTypeTok{plot =}\NormalTok{ bad_angle_shots_line_plot, }\DataTypeTok{height =} \DecValTok{16}\NormalTok{, }\DataTypeTok{width =} \DecValTok{16}\NormalTok{)}
+
+\NormalTok{bad_angle_shots_line_plot}
+\end{Highlighting}
+\end{Shaded}
+
+\includegraphics{RVH_Research_files/figure-latex/unnamed-chunk-6-1.pdf}
+
+rmarkdown::render(``/Users/colander1/Documents/CWA/Github/xG
+Model/RVH\_Research.Rmd'')
+
+
+\end{document}

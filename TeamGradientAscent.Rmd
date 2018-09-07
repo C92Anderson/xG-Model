@@ -1,0 +1,570 @@
+---
+title: "Gradient Ascent and Goal Scoring"
+resource_files:
+- goal_surface_df_combos.csv
+runtime: shiny
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+
+library(plotly); library(dplyr); library(ggplot2); library(shiny)
+
+fun.draw_rink <- function() {
+    
+    xseq <- seq(-4, 4, length = 100)
+    theta1 <- seq(0, 2 * pi, length = 300)
+    theta <- seq(0, 2 * pi, length = 300)
+    dd <- (5 + 7 / 12) / 2
+    
+    ## Blank NHL Rink
+    
+    rink <- ggplot(data = data.frame(x = 1, y = 1), aes(x, y)) + 
+        
+    geom_path(data = data.frame(
+        x = c(15, 87 + 13 * sin(seq(0, pi / 2, length = 20)), 
+            87 + 13 * sin(seq(pi / 2, 0, length = 20)), 15), 
+        y = c(-42.5, -42.5 + 15 - 15 * cos(seq(0, pi / 2, length = 20)), 
+            42.5 - 15 + 15 * cos(seq(pi / 2, 0, length = 20)), 42.5))) + 
+    # geom_path(data = data.frame(
+    #     x = c(15, -87 - 13 * sin(seq(0, pi / 2, length = 20)), 
+    #         -87 - 13 * sin(seq(pi / 2, 0, length = 20)), 15), 
+    #     y = c(-42.5, -42.5 + 15 - 15 * cos(seq(0, pi / 2, length = 20)), 
+    #         42.5 - 15 + 15 * cos(seq(pi / 2, 0, length = 20)), 42.5))) + 
+    ## Goal Lines
+    geom_path(data = data.frame(x = c(89),
+                                y = c(42.5 - 15 + sqrt(15^2 - (15 - 11)^2), 
+                                    -(42.5 - 15 + sqrt(15^2 - (15 - 11)^2)))), 
+              color = 'red') + 
+    # geom_path(data = data.frame(x = c(-89), 
+    #                             y = c(42.5 - 15 + sqrt(15^2 - (15 - 11)^2), 
+    #                                 -(42.5 - 15 + sqrt(15^2 - (15 - 11)^2)))), 
+    #           color = 'red') +
+    ## Nets
+    geom_path(data = data.frame(x = c(90, 92, 92, 90)), y = c(-3, -3, 3, 3)) + 
+    # geom_path(data = data.frame(x = c(-90, -92, -92, -90), y = c(-3,-3, 3, 3))) +
+    
+    ## Restricted Area
+    geom_segment(aes(x = 89, y = -11, xend = 100, yend = -14), color = 'red') + 
+    geom_segment(aes(x = 89, y = 11, xend = 100, yend = 14), color = 'red') + 
+    #geom_segment(aes(x = -89, y = -11, xend = -100, yend = -14), color = 'red') + 
+    #geom_segment(aes(x = -89, y = 11, xend =-100, yend = 14), color = 'red') +
+        
+    ## Red Line (Center Ice)
+    #geom_segment(aes(x = 0, y = -42.5, xend = 0, yend = 42.5), color = 'red', size = 1) +
+    
+    ## Blue Lines
+    geom_segment(aes(x = 25, y = -42.5, xend = 25,  yend = 42.5), color = 'blue', size = 1) + 
+    #geom_segment(aes(x = -25, y = -42.5, xend = -25,  yend = 42.5), color = 'blue', size = 1) +
+        
+    ## Crease
+    geom_polygon(data = data.frame(x = 1 * c(89, 83+xseq^2 / 4^2 * 1.5, 89),
+                                   y = c(-4, xseq, 4)), 
+                 color = 'red', fill = 'deepskyblue2') + 
+    #geom_polygon(data = data.frame(x = -1 * c(89, 83 + xseq^2 / 4^2 * 1.5, 89),
+    #                               y = c(-4, xseq, 4)), 
+    #             color = 'red', fill = 'deepskyblue2') +
+
+    ## Center Ice Circle
+    #geom_path(data = data.frame(x = 15 * sin(theta1)), 
+    #          y = 15 * cos(theta1), color = 'deepskyblue2') +
+        
+    ## Faceoff Dots
+    #geom_polygon(data = data.frame(y = 22 + 1 * cos(theta), 
+    #                               x = 20 + 1 * sin(theta)), 
+    #             color = "red", fill = "red") + 
+    #geom_polygon(data = data.frame(y = 22 + 1 * cos(theta), 
+    #                               x = -20 + 1 * sin(theta)), 
+    #             color = "red", fill = 'red') + 
+    #geom_polygon(data = data.frame(y = -22 + 1 * cos(theta), 
+    #                               x = -20 + 1 * sin(theta)), 
+    #             color = 'red', fill = 'red') + 
+    #geom_polygon(data = data.frame(y = -22 + 1 * cos(theta), 
+    #                               x = 20 + 1 * sin(theta)), 
+    #             color = 'red', fill = 'red') + 
+    #geom_polygon(data = data.frame(y = 22 + 1 * cos(theta), 
+    #                               x = -69 + 1 * sin(theta)), 
+    #             color = 'red', fill = 'red') + 
+    geom_polygon(data = data.frame(y = 22 + 1 * cos(theta), 
+                                   x = 69 + 1 * sin(theta)), 
+                 color = 'red', fill = 'red') + 
+    #geom_polygon(data = data.frame(y = -22 + 1 * cos(theta), 
+    #                               x = -69 + 1 * sin(theta)), 
+    #             color = 'red', fill = 'red') + 
+    geom_polygon(data = data.frame(y = -22 + 1 * cos(theta), 
+                                   x = 69 + 1 * sin(theta)), 
+                 color = 'red', fill = 'red') +
+
+    ## Faceoff Circles
+    geom_segment(aes(y = 22 - 0.75, x = 69 - 2, 
+                     yend = 22 - 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 - 2, 
+                     yend = 22 + 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 + 2, 
+                     yend = 22 + 0.75, xend = 69 + 6), color= 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 - 2, 
+                     yend = 22 - 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 - 2, 
+                     yend = -22 + 0.75, xend = 69 - 6), color= 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 + 2, 
+                     yend = -22 + 0.75, xend = 69 + 6), color= 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 - 2, 
+                     yend = -22 - 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 + 2, 
+                     yend = -22 - 0.75, xend = 69 + 6), color = 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 + 2, 
+                     yend = 22 - 0.75, xend = 69 + 6), color = 'red') + 
+    #geom_segment(aes(y = 22 + 0.75, x = -69 - 2, 
+    #                 yend = 22 + 0.75, xend = -69 - 6), color = 'red') + 
+    #geom_segment(aes(y = 22 - 0.75, x = -69 - 2, 
+    #                 yend = 22 - 0.75, xend = -69 - 6), color = 'red') + 
+    #geom_segment(aes(y = 22 + 0.75, x = -69 + 2, 
+    #                 yend = 22 + 0.75, xend = -69 + 6), color = 'red') + 
+    #geom_segment(aes(y = -22 + 0.75, x = -69 - 2, 
+    #                 yend = -22 + 0.75, xend = -69 - 6), color = 'red') + 
+    #geom_segment(aes(y = 22 - 0.75, x = -69 + 2, 
+    #                 yend = 22 - 0.75, xend = -69 + 6), color = 'red') + 
+    #geom_segment(aes(y = -22 + 0.75, x = -69 + 2, 
+    #                 yend = -22 + 0.75, xend = -69 + 6), color= 'red') + 
+    #geom_segment(aes(y = -22 - 0.75, x = -69 - 2, 
+    #                 yend = -22 - 0.75, xend = -69 - 6), color = 'red') + 
+    #geom_segment(aes(y = -22 - 0.75, x = -69 + 2, 
+    #                 yend = -22 - 0.75, xend = -69 + 6), color = 'red') + 
+    geom_segment(aes(y = 22 - 15, x = 69 - dd, 
+                     yend = 22 - 17, xend = 69 - dd), color = 'red') + 
+    geom_segment(aes(y = 22 - 15, x = 69 + dd, 
+                     yend = 22 - 17, xend = 69 + dd), color = 'red') + 
+    geom_segment(aes(y = 22 + 15, x = 69 + dd, 
+                     yend = 22+17, xend = 69 + dd), color = 'red') + 
+    geom_segment(aes(y = 22 + 15, x = 69 - dd, 
+                     yend = 22 + 17, xend = 69 - dd), color = 'red') + 
+    geom_segment(aes(y = -22 + 15, x = 69 - dd, 
+                     yend = -22 + 17, xend = 69 - dd), color = 'red') + 
+    geom_segment(aes(y = -22 + 15, x = 69 + dd, 
+                     yend = -22 + 17, xend = 69 + dd), color = 'red') + 
+    geom_segment(aes(y = -22 - 15, x = 69 - dd, 
+                     yend = -22 - 17, xend = 69 - dd), color= 'red') + 
+    geom_segment(aes(y = -22 - 15, x = 69 + dd, 
+                     yend = -22 - 17, xend = 69 + dd), color = 'red') + 
+    #geom_segment(aes(y = -22 + 15, x = -69 + dd, 
+    #                 yend = -22 + 17, xend = -69 + dd), color = 'red') + 
+    #geom_segment(aes(y = -22 - 15, x = -69 - dd, 
+    #                 yend = -22 - 17, xend = -69 - dd), color = 'red') + 
+    #geom_segment(aes(y = -22 - 15, x = -69 + dd, 
+    #                 yend = -22 - 17, xend = -69 + dd), color = 'red') + 
+    #geom_segment(aes(y = -22 + 15, x = -69 - dd, 
+    #                 yend = -22 + 17, xend = -69 - dd), color = 'red') + 
+    #geom_segment(aes(y = 22 - 15, x = -69 + dd, 
+    #                 yend = 22 - 17, xend = -69 + dd), color = 'red') + 
+    #geom_segment(aes(y = 22 - 15, x = -69 - dd, 
+     #                yend = 22 - 17, xend = -69 - dd), color = 'red') + 
+    #geom_segment(aes(y = 22 + 15, x = -69 - dd, 
+    #                 yend = 22 + 17, xend = -69 - dd), color = 'red') + 
+    #geom_segment(aes(y = 22 + 15, x = -69 + dd, 
+    #                 yend = 22 + 17, xend = -69 + dd), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 + 2, 
+                     yend = 22 + 3.75, xend = 69 + 2), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 - 2, 
+                     yend = 22 + 3.75, xend = 69 - 2), color = 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 + 2, 
+                     yend = 22 - 3.75, xend = 69 + 2), color = 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 - 2, 
+                     yend = 22 - 3.75, xend = 69 - 2), color = 'red') + 
+    #geom_segment(aes(y = 22 + 0.75, x = -69 + 2, 
+    #                 yend = 22 + 3.75, xend = -69 + 2), color = 'red') + 
+    #geom_segment(aes(y = 22 + 0.75, x = -69 - 2, 
+    #                 yend = 22 + 3.75, xend = -69 - 2), color = 'red') + 
+    #geom_segment(aes(y = 22 - 0.75, x = -69 + 2, 
+    #                 yend = 22 - 3.75, xend = -69 + 2), color = 'red') + 
+    #geom_segment(aes(y = 22 - 0.75, x = -69 - 2, 
+    #                 yend = 22 - 3.75, xend = -69 - 2), color = 'red') + 
+    #geom_segment(aes(y = -22 - 0.75, x = -69 + 2, 
+    #                 yend = -22 - 3.75, xend = -69 + 2), color = 'red') + 
+    #geom_segment(aes(y = -22 - 0.75, x = -69 - 2, 
+    #                 yend = -22 - 3.75, xend = -69 - 2), color = 'red') + 
+    #geom_segment(aes(y = -22 + 0.75, x = -69 + 2, 
+    #                 yend = -22 + 3.75, xend = -69 + 2), color = 'red') + 
+    #geom_segment(aes(y = -22 + 0.75, x = -69 - 2, 
+    #                 yend = -22 + 3.75, xend = -69 - 2), color = 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 + 2, 
+                     yend = -22 + 3.75, xend = 69 + 2), color = 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 - 2, 
+                     yend = -22 - 3.75, xend = 69 - 2), color = 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 - 2, 
+                     yend = -22 + 3.75, xend = 69 - 2), color = 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 + 2, 
+                     yend = -22 - 3.75, xend = 69 + 2), color = 'red') + 
+    geom_path(data = data.frame(y = 22 + 15 * cos(theta), 
+                                x = 69 + 15 * sin(theta)), color = 'red') + 
+    #geom_path(data = data.frame(y = 22 + 15 * cos(theta), 
+    #                            x = -69 + 15 * sin(theta)), color = 'red') + 
+    #geom_path(data = data.frame(y = -22 + 15 * cos(theta), 
+    #                            x = -69 + 15 * sin(theta)), color = 'red') + 
+    geom_path(data = data.frame(y = -22 + 15 * cos(theta), 
+                                x = 69 + 15 * sin(theta)), color = 'red') + 
+        
+    theme_void()
+}
+
+rink <- fun.draw_rink() + coord_fixed()
+
+#load("~/Documents/CWA/Hockey Data/scored_data.RData")
+# 
+# goal_surface_df <- scored_data %>%
+#       filter(p1_name == "ALEX OVECHKIN") %>%
+#       filter(EmptyNet_SA == 0) %>%
+#       mutate(Game_State = ifelse(Shooter_State > Goalie_State, "PP","Non-PP"),
+#              Shooting_Team = ifelse(Ev_Team == Home_Team, as.character(Home_Team), as.character(Away_Team))) %>%
+#       group_by(Game_State, Shooter_Handedness, Shooting_Team, X, Y) %>%
+#       summarise(Shots = n(),
+#                 Goals = sum(Goal),
+#                 Goal_Prob = mean(Goal),
+#                 Share_OZone = mean(ifelse(Ev_Zone == "Off",1,0))) %>%
+#       filter(Share_OZone > 0.9) %>%
+#       filter(Shooter_Handedness != "U") %>%
+#       ungroup()
+# 
+# write.csv(goal_surface_df, "~/Downloads/goal_surface_df_combos.csv", row.names = FALSE)
+
+library(knitr)
+
+goal_df <- reactive({
+  
+  teams <- input$teams
+  handedness <- input$handed
+  state <- input$state
+  
+  round_param <- input$round_param
+  
+  goal_surface_df <- read.csv("goal_surface_df_combos.csv")
+
+  goal_df <- goal_surface_df %>% 
+        filter(Shooting_Team %in% teams) %>%
+        filter(Shooter_Handedness %in% handedness) %>%
+        filter(Game_State %in% state) %>%
+    
+        filter(X > 25) %>% ## Offensive zone shots only
+        ungroup() %>%
+        mutate(X = as.double(round_param * floor(X / round_param)),
+               Y = as.double(round_param * floor(Y / round_param)),
+               Shots = as.double(Shots),
+               Goals = as.double(Goals)
+               ) %>%
+        group_by(X, Y) %>%
+        summarise(Goal_Prob = sum(Goals, na.rm=T) / sum(Shots, na.rm = T),
+                  Sample =  sum(Shots, na.rm = T)) %>%
+        ungroup() %>%
+        mutate(X = as.double(X),
+               Y = as.double(Y),
+               Goal_Prob = as.double(Goal_Prob)) %>%
+        filter(Sample > 10) ## Remove low volume shooting locations
+        
+  
+  return(goal_df)
+        
+})
+
+
+goal_function_surface <- reactive({
+        
+        poly_degree <- input$poly_degree
+        
+        model <- summary(lm(data = goal_df(), Goal_Prob ~ poly(X,Y, degree = poly_degree, raw=TRUE)))
+
+        derivatives <- data.frame(term = rownames(model$coefficients),
+                                  model$coefficients) %>%
+                tidyr::separate("term", c("term","pow"), sep = "[)]", remove = TRUE, fill = "left") %>%
+                tidyr::separate("pow", c("X_pow","Y_pow"), sep = "[.]", remove = TRUE, fill = "left")
+        
+        args <- "X, Y"
+        
+        derivative_strings <- derivatives %>%
+                mutate(X_pow = as.numeric(X_pow),
+                       Y_pow = as.numeric(Y_pow),
+                       X_pow_prime = X_pow - 1,
+                       Y_pow_prime = Y_pow - 1,
+                       fx_term = ifelse(is.na(X_pow) | is.na(Y_pow),paste0(Estimate),
+                              ifelse(X_pow > 0 & Y_pow > 0,paste0(Estimate, " * X**",X_pow, " * Y**",Y_pow),
+                              ifelse(X_pow > 0 ,paste0(Estimate, " * X**",X_pow),   
+                              ifelse(Y_pow > 0 ,paste0(Estimate, " * Y**",Y_pow),
+                                            paste0(Estimate))))),
+                       df_dx_term = ifelse(X_pow_prime >= 0 & Y_pow > 0,paste0(X_pow * Estimate, " * X**",X_pow_prime," * Y**",Y_pow),
+                               ifelse(X_pow_prime >= 0,paste0(X_pow * Estimate, " * X**",X_pow_prime),
+                                      NA)),
+                       df_dy_term = ifelse(Y_pow_prime >= 0 & X_pow > 0,paste0(Y_pow * Estimate, " * Y**",Y_pow_prime," * X**",X_pow),
+                               ifelse(Y_pow_prime >= 0,paste0(Y_pow * Estimate, " * Y**",Y_pow_prime),
+                                      NA))
+                       
+                       )
+        
+        ## Create function f(x,y)
+        function_str <- derivative_strings %>% select(fx_term) %>% na.omit() %>% group_by() %>% summarise(f = paste0(fx_term, collapse = " + "))
+        eval(parse(text = paste('f_xy <- function(', args, ') { return(' , function_str , ')}', sep='')))
+        
+        ## Create function df/dx
+        function_df_dx <- derivative_strings %>% select(df_dx_term) %>% na.omit() %>% group_by() %>% summarise(df_dx = paste0(df_dx_term, collapse = " + "))
+        eval(parse(text = paste('df_dx <- function(', args, ') { return(' , function_df_dx , ')}', sep='')))
+        
+        ## Create function df/dy
+        function_df_dy <- derivative_strings %>% select(df_dy_term) %>% na.omit() %>% group_by() %>% summarise(df_dy = paste0(df_dy_term, collapse = " + "))
+        eval(parse(text = paste('df_dy <- function(', args, ') { return(' , function_df_dy , ')}', sep='')))
+        
+    
+        goal_function_surface <- goal_df() %>%
+              mutate(f = f_xy(X, Y),
+                     dfdx = df_dx(X, Y),
+                     dfdy = df_dy(X, Y),
+                     X_end = X + (dfdx*30),
+                     Y_end = Y + (dfdy*30)
+                     )
+
+  return(goal_function_surface)         
+        
+})
+
+
+predicted_goal_prob_mat <- reactive({
+  
+        poly_degree <- input$poly_degree
+        
+        model <- lm(data = goal_df(), Goal_Prob ~ poly(X,Y, degree = poly_degree, raw=TRUE))
+
+        predicted <- as.data.frame(predict(model, goal_df()))
+        colnames(predicted) <- "predicted"
+      
+      
+        predicted_goal_prob_mat <- goal_df() %>%
+            bind_cols(predicted) %>% 
+            data.table::dcast(X ~ Y, value.var = "predicted") %>%
+            select(-c(X)) %>%
+            as.matrix()
+      
+        return(predicted_goal_prob_mat)
+  
+})
+
+
+```
+
+Sidebar {.sidebar}
+=====================================
+
+### Shooting Inputs
+
+```{r}
+
+output$team_input <- renderUI({
+    
+    teams <- c('ANA',	'ARI',	'BOS',	'BUF',	'CGY',	'CAR',	'CHI',	'COL',	'CBJ',	'DAL',	'DET',	'EDM',	'FLA',	'L.A',	'MIN',	'MTL',	'NSH',	'N.J',	'NYI',	'NYR',	'OTT',	'PHI',	'PIT',	'S.J',	'STL',	'T.B',	'TOR',	'VAN',	'VGK',	'WSH',	'WPG')
+
+
+    selectizeInput("teams", "Select Team(s): ",
+                  c(teams),
+                  multiple = TRUE,
+                  selected = "WSH"
+                  )
+})
+
+
+output$handed_input <- renderUI({
+
+    handed <- c("L","R")
+    
+    selectizeInput("handed", "Shooter Handedness: ",
+                  c(handed),
+                  multiple = TRUE,
+                  selected = c(handed)
+                  )
+
+})
+
+output$state_input <- renderUI({
+
+    state <- c("PP","Non-PP")
+
+    selectizeInput("state", "Select Game State(s): ",
+                  c(state),
+                  multiple = TRUE,
+                  selected = c(state)
+                  )
+
+})
+
+uiOutput("team_input")
+uiOutput("handed_input")
+uiOutput("state_input")
+
+```
+
+### Model Inputs
+
+Increasing the polynomial degree increases the complexity of the modeled goal probability and subsequent gradient.
+
+```{r}
+output$poly_input <- renderUI({
+
+  inputPanel(
+  sliderInput("poly_degree","Polynomial Degree:", min = 3, max = 20, step = 1, value = 10)
+  )
+})
+
+uiOutput("poly_input")  
+
+```
+
+Coordinate rounding parameter is used to group coordinates in order to increase sample size. When limiting to a team shooting right handed on the PP, for example, a higher parameter would help create a smoothed surface.
+
+```{r}
+
+output$round_param <- renderUI({
+
+  inputPanel(
+  sliderInput("round_param","Coordinate Rounding Parameter:", min = 3, max = 8, step = 1, value = 5)
+  )
+})
+
+uiOutput("round_param")  
+
+```
+
+Goal Gradient Map
+============================================================================
+
+Row {data-height=125}
+-------------------------------------
+
+### Overview
+
+My previous work including the [math and logic behind this analysis can be found here.](https://crowdscoutsports.shinyapps.io/GoalGradientAscent/)
+The plots below calculate situational goal probability by some combination of team, shooter handedness, and strength. 
+
+* Observed Goal Probability Map - the probability of goal from each set of coordinates in the offensive zone (grouped together with coordinate rounding parameter)
+* Modeled Goal Probability Map - creating a function to represent the goal probability, a higher polynomial degree creates more complexity in the surface (potentially causing some stranges things to happen)
+* Modeled Gradient Ascent Map - based on modeled goal surface, the direction where goal probability increases the most from an given point in the offensive zone
+* Modeled Contour Map - a 2D representation of the Modeled Goal Probability Map
+
+
+Row {data-height=300}
+-------------------------------------
+
+### Observed Goal Probability Map
+
+```{r probs, echo=FALSE}
+
+renderPlotly({
+  
+
+Goal_Prob_mat <- goal_df() %>% 
+            data.table::dcast(X ~ Y, value.var = "Goal_Prob") %>%
+            select(-c(X)) %>%
+            as.matrix()
+
+plotly::plot_ly(
+                     z = Goal_Prob_mat,
+                     colors = "YlOrRd"
+                     #direction = -1
+                     ) %>%
+          add_surface() %>%
+          layout(
+              title = paste0("Observed Goal Probability Map\n",
+                             paste(input$teams,sep="", collapse="-"),"; ",
+                             paste(input$handed,sep="", collapse="-"),"; ",
+                             paste(input$state,sep="", collapse="-")
+                    )
+              )
+
+})
+
+```
+
+### Modeled Goal Probability Map
+
+```{r}
+
+renderPlotly({
+  
+    plotly::plot_ly( z = predicted_goal_prob_mat(),
+                 colors = "YlOrRd"
+                ) %>%
+          add_surface() %>%
+          layout(
+              title = paste0("Modeled Goal Probability Map\n",
+                             paste(input$teams,sep="", collapse="-"),"; ",
+                             paste(input$handed,sep="", collapse="-"),"; ",
+                             paste(input$state,sep="", collapse="-")
+                    )
+              )
+
+})
+
+
+```
+
+Row {data-height=550}
+-------------------------------------
+
+### Modeled Gradient Ascent Map
+
+```{r, gradmap, echo=FALSE}
+
+renderPlot({
+  
+goal_grad_contour <- rink +
+    #geom_contour(data = goal_df(), aes(x=X, y=Y, z=Goal_Prob, colour = calc(level)), bins = 8) +
+    #scale_color_gradient2(low="#4575b4", mid = "#74add1", high="#d73027", labels = scales::percent, limits = c(0, NA)) +
+    geom_segment(data = goal_function_surface(), aes(x=X, xend=X_end, y=Y, yend=Y_end), position = "identity", color = "grey25",
+                 arrow=arrow(length = unit(0.5, "cm"))
+                 ) +
+    xlim(c(15,100)) +
+    ylim(c(-45,45)) +
+    labs(color = "Shooting %",
+         title = paste0("Goal Probability Gradient Ascent Map\n",
+                    paste(input$teams,sep="", collapse="-"),"; ",
+                             paste(input$handed,sep="", collapse="-"),"; ",
+                             paste(input$state,sep="", collapse="-")))
+
+
+ #goal_grad_contour <- ggplotly(goal_grad_contour, source = 'source', tooltip = "text")
+
+  goal_grad_contour
+
+
+
+}, height = 600, width = 600)
+
+
+```
+
+### Modeled Contour Map
+
+```{r, contour, echo=FALSE}
+
+renderPlot({
+  
+goal_grad_contour <- rink +
+    geom_contour(data = goal_df(), aes(x=X, y=Y, z=Goal_Prob, colour = calc(level)), bins = 8) +
+    scale_color_gradient2(low="#4575b4", mid = "#74add1", high="#d73027", labels = scales::percent, limits = c(0, NA)) +
+    
+    #geom_segment(data = goal_function_surface(), aes(x=X, xend=X_end, y=Y, yend=Y_end), position = "identity", color = "grey25",
+    #             arrow=arrow(length = unit(0.5, "cm"))
+    #             ) +
+    labs(color = "Shooting %",
+         title = paste0("Goal Probability Contour Map\n",
+                    paste(input$teams,sep="", collapse="-"),"; ",
+                             paste(input$handed,sep="", collapse="-"),"; ",
+                             paste(input$state,sep="", collapse="-")))
+
+
+ #goal_grad_contour <- ggplotly(goal_grad_contour, source = 'source', tooltip = "text")
+
+  goal_grad_contour
+
+
+
+}, height = 600, width = 600)
+
+
+```

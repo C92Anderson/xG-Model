@@ -1,0 +1,442 @@
+---
+title: "Gradient Ascent and Goal Scoring"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+
+
+library(plotly); library(dplyr); library(ggplot2)
+
+fun.draw_rink <- function() {
+    
+    
+    
+    xseq <- seq(-4, 4, length = 100)
+    theta1 <- seq(0, 2 * pi, length = 300)
+    theta <- seq(0, 2 * pi, length = 300)
+    dd <- (5 + 7 / 12) / 2
+    
+    ## Blank NHL Rink
+    
+    rink <- ggplot(data = data.frame(x = 1, y = 1), aes(x, y)) + 
+        
+    geom_path(data = data.frame(
+        x = c(15, 87 + 13 * sin(seq(0, pi / 2, length = 20)), 
+            87 + 13 * sin(seq(pi / 2, 0, length = 20)), 15), 
+        y = c(-42.5, -42.5 + 15 - 15 * cos(seq(0, pi / 2, length = 20)), 
+            42.5 - 15 + 15 * cos(seq(pi / 2, 0, length = 20)), 42.5))) + 
+    # geom_path(data = data.frame(
+    #     x = c(15, -87 - 13 * sin(seq(0, pi / 2, length = 20)), 
+    #         -87 - 13 * sin(seq(pi / 2, 0, length = 20)), 15), 
+    #     y = c(-42.5, -42.5 + 15 - 15 * cos(seq(0, pi / 2, length = 20)), 
+    #         42.5 - 15 + 15 * cos(seq(pi / 2, 0, length = 20)), 42.5))) + 
+    ## Goal Lines
+    geom_path(data = data.frame(x = c(89),
+                                y = c(42.5 - 15 + sqrt(15^2 - (15 - 11)^2), 
+                                    -(42.5 - 15 + sqrt(15^2 - (15 - 11)^2)))), 
+              color = 'red') + 
+    # geom_path(data = data.frame(x = c(-89), 
+    #                             y = c(42.5 - 15 + sqrt(15^2 - (15 - 11)^2), 
+    #                                 -(42.5 - 15 + sqrt(15^2 - (15 - 11)^2)))), 
+    #           color = 'red') +
+    ## Nets
+    geom_path(data = data.frame(x = c(90, 92, 92, 90)), y = c(-3, -3, 3, 3)) + 
+    # geom_path(data = data.frame(x = c(-90, -92, -92, -90), y = c(-3,-3, 3, 3))) +
+    
+    ## Restricted Area
+    geom_segment(aes(x = 89, y = -11, xend = 100, yend = -14), color = 'red') + 
+    geom_segment(aes(x = 89, y = 11, xend = 100, yend = 14), color = 'red') + 
+    #geom_segment(aes(x = -89, y = -11, xend = -100, yend = -14), color = 'red') + 
+    #geom_segment(aes(x = -89, y = 11, xend =-100, yend = 14), color = 'red') +
+        
+    ## Red Line (Center Ice)
+    #geom_segment(aes(x = 0, y = -42.5, xend = 0, yend = 42.5), color = 'red', size = 1) +
+    
+    ## Blue Lines
+    geom_segment(aes(x = 25, y = -42.5, xend = 25,  yend = 42.5), color = 'blue', size = 1) + 
+    #geom_segment(aes(x = -25, y = -42.5, xend = -25,  yend = 42.5), color = 'blue', size = 1) +
+        
+    ## Crease
+    geom_polygon(data = data.frame(x = 1 * c(89, 83+xseq^2 / 4^2 * 1.5, 89),
+                                   y = c(-4, xseq, 4)), 
+                 color = 'red', fill = 'deepskyblue2') + 
+    #geom_polygon(data = data.frame(x = -1 * c(89, 83 + xseq^2 / 4^2 * 1.5, 89),
+    #                               y = c(-4, xseq, 4)), 
+    #             color = 'red', fill = 'deepskyblue2') +
+
+    ## Center Ice Circle
+    #geom_path(data = data.frame(x = 15 * sin(theta1)), 
+    #          y = 15 * cos(theta1), color = 'deepskyblue2') +
+        
+    ## Faceoff Dots
+    #geom_polygon(data = data.frame(y = 22 + 1 * cos(theta), 
+    #                               x = 20 + 1 * sin(theta)), 
+    #             color = "red", fill = "red") + 
+    #geom_polygon(data = data.frame(y = 22 + 1 * cos(theta), 
+    #                               x = -20 + 1 * sin(theta)), 
+    #             color = "red", fill = 'red') + 
+    #geom_polygon(data = data.frame(y = -22 + 1 * cos(theta), 
+    #                               x = -20 + 1 * sin(theta)), 
+    #             color = 'red', fill = 'red') + 
+    #geom_polygon(data = data.frame(y = -22 + 1 * cos(theta), 
+    #                               x = 20 + 1 * sin(theta)), 
+    #             color = 'red', fill = 'red') + 
+    #geom_polygon(data = data.frame(y = 22 + 1 * cos(theta), 
+    #                               x = -69 + 1 * sin(theta)), 
+    #             color = 'red', fill = 'red') + 
+    geom_polygon(data = data.frame(y = 22 + 1 * cos(theta), 
+                                   x = 69 + 1 * sin(theta)), 
+                 color = 'red', fill = 'red') + 
+    #geom_polygon(data = data.frame(y = -22 + 1 * cos(theta), 
+    #                               x = -69 + 1 * sin(theta)), 
+    #             color = 'red', fill = 'red') + 
+    geom_polygon(data = data.frame(y = -22 + 1 * cos(theta), 
+                                   x = 69 + 1 * sin(theta)), 
+                 color = 'red', fill = 'red') +
+
+    ## Faceoff Circles
+    geom_segment(aes(y = 22 - 0.75, x = 69 - 2, 
+                     yend = 22 - 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 - 2, 
+                     yend = 22 + 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 + 2, 
+                     yend = 22 + 0.75, xend = 69 + 6), color= 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 - 2, 
+                     yend = 22 - 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 - 2, 
+                     yend = -22 + 0.75, xend = 69 - 6), color= 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 + 2, 
+                     yend = -22 + 0.75, xend = 69 + 6), color= 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 - 2, 
+                     yend = -22 - 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 + 2, 
+                     yend = -22 - 0.75, xend = 69 + 6), color = 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 + 2, 
+                     yend = 22 - 0.75, xend = 69 + 6), color = 'red') + 
+    #geom_segment(aes(y = 22 + 0.75, x = -69 - 2, 
+    #                 yend = 22 + 0.75, xend = -69 - 6), color = 'red') + 
+    #geom_segment(aes(y = 22 - 0.75, x = -69 - 2, 
+    #                 yend = 22 - 0.75, xend = -69 - 6), color = 'red') + 
+    #geom_segment(aes(y = 22 + 0.75, x = -69 + 2, 
+    #                 yend = 22 + 0.75, xend = -69 + 6), color = 'red') + 
+    #geom_segment(aes(y = -22 + 0.75, x = -69 - 2, 
+    #                 yend = -22 + 0.75, xend = -69 - 6), color = 'red') + 
+    #geom_segment(aes(y = 22 - 0.75, x = -69 + 2, 
+    #                 yend = 22 - 0.75, xend = -69 + 6), color = 'red') + 
+    #geom_segment(aes(y = -22 + 0.75, x = -69 + 2, 
+    #                 yend = -22 + 0.75, xend = -69 + 6), color= 'red') + 
+    #geom_segment(aes(y = -22 - 0.75, x = -69 - 2, 
+    #                 yend = -22 - 0.75, xend = -69 - 6), color = 'red') + 
+    #geom_segment(aes(y = -22 - 0.75, x = -69 + 2, 
+    #                 yend = -22 - 0.75, xend = -69 + 6), color = 'red') + 
+    geom_segment(aes(y = 22 - 15, x = 69 - dd, 
+                     yend = 22 - 17, xend = 69 - dd), color = 'red') + 
+    geom_segment(aes(y = 22 - 15, x = 69 + dd, 
+                     yend = 22 - 17, xend = 69 + dd), color = 'red') + 
+    geom_segment(aes(y = 22 + 15, x = 69 + dd, 
+                     yend = 22+17, xend = 69 + dd), color = 'red') + 
+    geom_segment(aes(y = 22 + 15, x = 69 - dd, 
+                     yend = 22 + 17, xend = 69 - dd), color = 'red') + 
+    geom_segment(aes(y = -22 + 15, x = 69 - dd, 
+                     yend = -22 + 17, xend = 69 - dd), color = 'red') + 
+    geom_segment(aes(y = -22 + 15, x = 69 + dd, 
+                     yend = -22 + 17, xend = 69 + dd), color = 'red') + 
+    geom_segment(aes(y = -22 - 15, x = 69 - dd, 
+                     yend = -22 - 17, xend = 69 - dd), color= 'red') + 
+    geom_segment(aes(y = -22 - 15, x = 69 + dd, 
+                     yend = -22 - 17, xend = 69 + dd), color = 'red') + 
+    #geom_segment(aes(y = -22 + 15, x = -69 + dd, 
+    #                 yend = -22 + 17, xend = -69 + dd), color = 'red') + 
+    #geom_segment(aes(y = -22 - 15, x = -69 - dd, 
+    #                 yend = -22 - 17, xend = -69 - dd), color = 'red') + 
+    #geom_segment(aes(y = -22 - 15, x = -69 + dd, 
+    #                 yend = -22 - 17, xend = -69 + dd), color = 'red') + 
+    #geom_segment(aes(y = -22 + 15, x = -69 - dd, 
+    #                 yend = -22 + 17, xend = -69 - dd), color = 'red') + 
+    #geom_segment(aes(y = 22 - 15, x = -69 + dd, 
+    #                 yend = 22 - 17, xend = -69 + dd), color = 'red') + 
+    #geom_segment(aes(y = 22 - 15, x = -69 - dd, 
+     #                yend = 22 - 17, xend = -69 - dd), color = 'red') + 
+    #geom_segment(aes(y = 22 + 15, x = -69 - dd, 
+    #                 yend = 22 + 17, xend = -69 - dd), color = 'red') + 
+    #geom_segment(aes(y = 22 + 15, x = -69 + dd, 
+    #                 yend = 22 + 17, xend = -69 + dd), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 + 2, 
+                     yend = 22 + 3.75, xend = 69 + 2), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 - 2, 
+                     yend = 22 + 3.75, xend = 69 - 2), color = 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 + 2, 
+                     yend = 22 - 3.75, xend = 69 + 2), color = 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 - 2, 
+                     yend = 22 - 3.75, xend = 69 - 2), color = 'red') + 
+    #geom_segment(aes(y = 22 + 0.75, x = -69 + 2, 
+    #                 yend = 22 + 3.75, xend = -69 + 2), color = 'red') + 
+    #geom_segment(aes(y = 22 + 0.75, x = -69 - 2, 
+    #                 yend = 22 + 3.75, xend = -69 - 2), color = 'red') + 
+    #geom_segment(aes(y = 22 - 0.75, x = -69 + 2, 
+    #                 yend = 22 - 3.75, xend = -69 + 2), color = 'red') + 
+    #geom_segment(aes(y = 22 - 0.75, x = -69 - 2, 
+    #                 yend = 22 - 3.75, xend = -69 - 2), color = 'red') + 
+    #geom_segment(aes(y = -22 - 0.75, x = -69 + 2, 
+    #                 yend = -22 - 3.75, xend = -69 + 2), color = 'red') + 
+    #geom_segment(aes(y = -22 - 0.75, x = -69 - 2, 
+    #                 yend = -22 - 3.75, xend = -69 - 2), color = 'red') + 
+    #geom_segment(aes(y = -22 + 0.75, x = -69 + 2, 
+    #                 yend = -22 + 3.75, xend = -69 + 2), color = 'red') + 
+    #geom_segment(aes(y = -22 + 0.75, x = -69 - 2, 
+    #                 yend = -22 + 3.75, xend = -69 - 2), color = 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 + 2, 
+                     yend = -22 + 3.75, xend = 69 + 2), color = 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 - 2, 
+                     yend = -22 - 3.75, xend = 69 - 2), color = 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 - 2, 
+                     yend = -22 + 3.75, xend = 69 - 2), color = 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 + 2, 
+                     yend = -22 - 3.75, xend = 69 + 2), color = 'red') + 
+    geom_path(data = data.frame(y = 22 + 15 * cos(theta), 
+                                x = 69 + 15 * sin(theta)), color = 'red') + 
+    #geom_path(data = data.frame(y = 22 + 15 * cos(theta), 
+    #                            x = -69 + 15 * sin(theta)), color = 'red') + 
+    #geom_path(data = data.frame(y = -22 + 15 * cos(theta), 
+    #                            x = -69 + 15 * sin(theta)), color = 'red') + 
+    geom_path(data = data.frame(y = -22 + 15 * cos(theta), 
+                                x = 69 + 15 * sin(theta)), color = 'red') + 
+        
+    theme_void()
+}
+
+rink <- fun.draw_rink() + coord_fixed()
+
+# load("~/Documents/CWA/Hockey Data/scored_data.RData")
+# 
+# goal_surface_df <- scored_data %>%
+#       filter(EmptyNet_SA == 0) %>%
+#       mutate(Game_State = ifelse(Shooter_State > Goalie_State, "PP","Non-PP")) %>%
+#       group_by(X, Y) %>%
+#       summarise(Sample = n(),
+#                 Goal_Prob = mean(Goal),
+#                 Share_OZone = mean(ifelse(Ev_Zone == "Off",1,0))) %>%
+#       filter(Share_OZone > 0.9)
+#write.csv(goal_surface_df, "~/Downloads/goal_surface_df.csv")
+
+goal_surface_df <- read.csv("~/Downloads/goal_surface_df.csv")
+
+```
+
+## How to Go to the Net
+
+Shot location has a considerable impact on the probability of a goal. Any xG model, shooting % heatmap, or the adage "go to the net if you want to score" will support that. But defenders rightfully make getting to the front of the net difficult, so offensive players often have to make internal calculations with respect to their location on the ice, defensive positioning, teammate support, and possibly things like score, strength, and fatigue. They must consider the trade-off between shot distance and shot angle, since taking a direct line to the front of the net is rarely an option.
+
+An interesting and useful question might be **at any given point in the offensive zone, what *direction* increases the probability of a goal most?** If a player has the puck at the offensive zone faceoff dot are they better off trying to get closer to the net at the same angle, or getting toward the middle of the ice at without decreasing the distance to the net?
+
+Thankfully, we can borrow concepts from math class to help answer these questions. Differential equations from high school math have found a home in machine learning, known as *gradient descent*, where some model error in a multi-variate function repeatedly minimized until we're fairly certainly the model parameters represent a minimum error. The gradient is just the first-order derivative of the function, and you might remember from math class, represents the rate of change that our metric of interest is undergoing at any given point with respect to the rate of change in the input variables.
+
+Applied to hockey we'd just want to calculate the derivative of the probability of a goal being scored with respect to moving in the north-south or east-west direction. We are also interested in find a maximum (shooting %), so will be using the gradient *ascent*, but the concept is the same.
+
+## Goal Probability by Shot Location
+
+First, we need a good idea of how the probability of a goal is impacted by shot location. To do this, we can use the x, y coordinates from the NHL PBP data from 2010 - 18 and simply calculate the shooting % at each point. Looking at just offensive zone shots with more than 25 occurrences, we see a 'mountain' right in front of the net. Using this visual, wherever we find ourselves on the map, we want to 'climb the mountain' by heading in the direction where we will see the steepest ascent.
+
+```{r mountain, echo=FALSE}
+
+goal_df <- goal_surface_df %>% 
+        filter(Sample > 25) %>% ## Remove low volume shooting locations
+        filter(X > 25) ## Offensive zone shots only
+        
+
+Goal_Prob_mat <- goal_df %>% 
+            data.table::dcast(X ~ Y, value.var = "Goal_Prob") %>%
+            select(-c(X)) %>%
+            as.matrix()
+
+plotly::plot_ly(
+                     z = Goal_Prob_mat,
+                     colors = "YlOrRd"
+                     #direction = -1
+                     ) %>%
+          add_surface() 
+
+```
+
+## Contour Map
+
+We can change this view to a contour map and overlay it on a hockey rink to give in some more context. As you can see in the 3D view, there are some rocky bit of our surface, but we can smooth these by round our coordinates to the nearest multiple of 3. 
+
+```{r contour, echo=FALSE}
+
+round_param <- 3
+
+goal_df_rounded <- goal_df %>% 
+    ungroup() %>%
+    mutate(X = as.double(round_param * floor(X / round_param)),
+           Y = as.double(round_param * floor(Y / round_param)),
+           Goal_Prob = as.double(Goal_Prob)
+           ) %>%
+    group_by(X, Y) %>%
+    summarise(Goal_Prob = mean(Goal_Prob, na.rm=T)) %>%
+    ungroup() %>%
+    mutate(X = as.double(X),
+           Y = as.double(Y),
+           Goal_Prob = as.double(Goal_Prob)) 
+
+goal_contour <- rink +
+    geom_contour(data = goal_df_rounded, aes(x=X, y=Y, z=Goal_Prob, colour = calc(level)), bins = 8) +
+    #scale_color_distiller( palette = "PuOr", trans = "reverse", labels = scales::percent) +
+    scale_color_gradient2(low="#4575b4", mid = "#74add1", high="#d73027", labels = scales::percent, limits = c(0, NA)) +
+    labs(color = "Shooting %",
+         title = "Goal Probability Contour Map")
+
+goal_contour
+
+
+```
+
+## Modeling Goal Probability
+
+The next step will be to model the probability of a goal as a function of our coordinates, x and y. To do this we can fit a polynomial linear model, where the probability of a goal is explained by some combination of X and Y to the power of n, where n is the degree of our polynomial. 
+
+Below we can play around with the polynomial degree, currently set to n=2 which is represented by the function
+$$P(G)x,y = 	\alpha_0 + \beta_1x + \beta_2x^2 + \beta_3y + \beta_4y^2 + \beta_5xy + \epsilon$$
+
+where the β terms vary to create the best fit between the predicted and actual goal probability at each point on the ice.
+
+A degree of 1 creates a flat plane almost like a ramp and obviously is not a good fit for the data. A higher order degree begins to look more like the original 'mountain' but eventually the additional complexity doesn't add much. A degree of 20 requires almost 200 terms, while a degree of 10 has 66 terms with nearly the same goodness-of-fit (0.84 vs 0.77 R-squared, respectively).
+`
+```{r model, echo=FALSE}
+
+inputPanel(
+sliderInput("poly_degree","Polynomial Degree:", min = 1, max = 20, step = 1, value = 2)
+)
+
+renderPlotly({
+  
+  model <- lm(data = goal_df, Goal_Prob ~ poly(X,Y, degree = input$poly_degree, raw=TRUE))
+  predicted <- as.data.frame(predict(model, goal_df))
+  colnames(predicted) <- "predicted"
+
+  predicted_goal_prob_mat <- goal_df %>%
+      bind_cols(predicted) %>% 
+      data.table::dcast(X ~ Y, value.var = "predicted") %>%
+      select(-c(X)) %>%
+      as.matrix()
+
+  plotly::plot_ly( z = predicted_goal_prob_mat,
+                 colors = "YlOrRd"
+                ) %>%
+          add_surface()
+
+})
+```
+
+## Deriving the Function
+
+Finding the best fit of a 10-degree polynomial function and probability of a goal gives us a formula like the one above (except many more combinations of terms) with the coefficients filled in. This gives us an equation like we wanted and might come across in multivariate calculus. We'll have to derive the function twice, once each for the X and Y coordinates. When deriving for the X coordinate we treat Y as a constant and vice versa. 
+
+In the code below I attempt this derivation, I use the [Power Rule*](https://www.khanacademy.org/math/ap-calculus-ab/ab-derivative-rules/ab-diff-negative-fraction-powers/a/power-rule-review) to create terms for the function f(x,y), the derivative with respect to X (shown in the table below), and the derivative with respect to Y. The terms for each of these equations are then aggregated into a function that contains a long messy formula that takes X, Y coordinates and returns goal probability (f(x,y)), change in goal probability as X changes (df/dx), and change in goal probability as Y changes (df/dy), respectively.
+
+*Power Rule
+$$f(x)=x^n \Rightarrow  f′(x)=n*x^{n-1}$$
+
+```{r derivation0, echo=FALSE}
+
+## Model Summary
+model_info <- summary(lm(data = goal_df, Goal_Prob ~ poly(X,Y, degree = 10, raw=TRUE)))
+
+derivatives <- data.frame(term = rownames(model_info$coefficients),
+                          model_info$coefficients) %>%
+        tidyr::separate("term", c("term","pow"), sep = "[)]", remove = TRUE, fill = "left") %>%
+        tidyr::separate("pow", c("X_pow","Y_pow"), sep = "[.]", remove = TRUE, fill = "left")
+
+args <- "X, Y"
+
+```
+```{r derivation}
+
+derivative_strings <- derivatives %>%
+        mutate(X_pow = as.numeric(X_pow),
+               Y_pow = as.numeric(Y_pow),
+               X_pow_prime = X_pow - 1,
+               Y_pow_prime = Y_pow - 1,
+               fx_term = ifelse(is.na(X_pow) | is.na(Y_pow),paste0(Estimate),
+                      ifelse(X_pow > 0 & Y_pow > 0,paste0(Estimate, " * X**",X_pow, " * Y**",Y_pow),
+                      ifelse(X_pow > 0 ,paste0(Estimate, " * X**",X_pow),   
+                      ifelse(Y_pow > 0 ,paste0(Estimate, " * Y**",Y_pow),
+                                    paste0(Estimate))))),
+               df_dx_term = ifelse(X_pow_prime >= 0 & Y_pow > 0,paste0(X_pow * Estimate, " * X**",X_pow_prime," * Y**",Y_pow),
+                       ifelse(X_pow_prime >= 0,paste0(X_pow * Estimate, " * X**",X_pow_prime),
+                              NA)),
+               df_dy_term = ifelse(Y_pow_prime >= 0 & X_pow > 0,paste0(Y_pow * Estimate, " * Y**",Y_pow_prime," * X**",X_pow),
+                       ifelse(Y_pow_prime >= 0,paste0(Y_pow * Estimate, " * Y**",Y_pow_prime),
+                              NA))
+               
+               )
+
+knitr::kable(derivative_strings %>% select(c(Estimate, X_pow, fx_term, df_dx_term)) %>% head(10), align='r')
+
+## Create function f(x,y)
+function_str <- derivative_strings %>% select(fx_term) %>% na.omit() %>% group_by() %>% summarise(f = paste0(fx_term, collapse = " + "))
+eval(parse(text = paste('f_xy <- function(', args, ') { return(' , function_str , ')}', sep='')))
+
+## Create function df/dx
+function_df_dx <- derivative_strings %>% select(df_dx_term) %>% na.omit() %>% group_by() %>% summarise(df_dx = paste0(df_dx_term, collapse = " + "))
+eval(parse(text = paste('df_dx <- function(', args, ') { return(' , function_df_dx , ')}', sep='')))
+
+## Create function df/dy
+function_df_dy <- derivative_strings %>% select(df_dy_term) %>% na.omit() %>% group_by() %>% summarise(df_dy = paste0(df_dy_term, collapse = " + "))
+eval(parse(text = paste('df_dy <- function(', args, ') { return(' , function_df_dy , ')}', sep='')))
+
+
+```
+
+## Map to the Net
+
+The functions f(x,y), df/dx, and df/dy we can evaluate each X, Y coordinate in the offensive zone for goal probability and both the X and Y directions that increase goal probability the most which can be represented by arrows. Arrows should cross the contour lines perpendicularly, the most direct way to increase goal probability.
+
+Overlaying the vectors on the contour map we can see some patterns, most of which are fairly intuitive.
+
+* Interestingly, when at the face-off dot shooters seem to be gaining ice toward the middle of the ice, rather than heading directly toward the net.
+* The edges of the map are a little messy, remember we modeled a surface that likely drifted upward or downward depending on the degree of polynomial used (even number likely up, odd number down)
+* Shots from the point seem to be best from the very center of the ice and a few other sweet spots. Moving a little further back to gain some ice from a potential block and shooting lanes seem to be an ok strategy.
+* Starting from a bad angle suggest a shooter should gain angle rather than decrease distance.
+
+```{r gradmap, echo=FALSE}
+
+goal_function_surface <- goal_df_rounded %>%
+      mutate(f = f_xy(X, Y),
+             dfdx = df_dx(X, Y),
+             dfdy = df_dy(X, Y),
+             X_end = X + (dfdx*30),
+             Y_end = Y + (dfdy*30)
+             )
+
+goal_grad_contour <- goal_contour +
+    geom_segment(data = goal_function_surface, aes(x=X, xend=X_end, y=Y, yend=Y_end), position = "identity", color = "grey25",
+                 arrow=arrow(length = unit(0.15, "cm"))
+                 ) +
+    labs(color = "Shooting %",
+         title = "Goal Probability Contour and Gradient Ascent Map")
+
+goal_grad_contour
+
+```
+
+## Conclusion
+
+Goal scoring is more than a location and the contour maps are built off of 'found data' - it is influenced by strategies offensives and defensive employ, not generated in a vacuum. I suspect that the best attackers and defenders are innately making these calculations vying for most valuable ice, which can be dependent on the score, passing options, and handedness.
+
+There are very interesting patterns suggesting the gaining angle can be more important that decreasing distance to the net. Goaltender blocking tactics can be formidable at the NHL level ([though not always](http://www.crowdscoutsports.com/game-theory/rvh-research/)) so this makes sense. Defenders understand that the priority is to defend the middle of the ice. Using a little calculus on about 800,000 shots seem to support those heuristics.
+
+```{r}
+
+```
+
+
+------------------------------------------------------------------------------------------------------------------------------------------------
+
+>Thanks for reading! Any custom requests ping me at @crowdscoutsprts or cole92anderson@gmail.com.
+
+>Code for this analysis was built off a scraper built by @36Hobbit which can be found at github.com/HarryShomer/Hockey-Scraper. I also implement shot location adjustment outlined by Schuckers and Curro and adapted by @OilersNerdAlert. Any implementation issues are my fault. The rink plot is adapted from @iyer_prashanth code.
+
+>My code for this and other analyses can be found on my Github.

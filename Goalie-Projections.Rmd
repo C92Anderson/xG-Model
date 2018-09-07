@@ -729,3 +729,25 @@ geom_text(label="2017-18 Projected\nRanking",x=1,y=(2 + (nrow(goalie_season_resu
 actual_to_projected_slope
 ggsave(filename="/Users/colander1/Downloads/actual_to_projected_slope.png", plot=actual_to_projected_slope,  width=12, height=18)
 ```
+
+## Density
+
+```{r}
+
+  location_map <- rink +
+    geom_tile(data = cp5v5 %>% filter(x > 26 & x < 89), aes(x=x, y=y, fill=z, alpha=z)) +
+    #geom_tile(data = goalie1_den(), aes(x, y, z, fill=z)) +
+    #stat_contour(data = goalie1_den(), aes(color=..level..), binwidth=1) +
+   scale_fill_gradient2(low = "#3366CC", high = "#DC3912", midpoint=0, labels = scales::percent) +
+   scale_alpha(range = c(0.5, 0.8), guide = FALSE) +
+    xlim(20,NA) +
+    ylim(-43,43) +
+    theme_standard() + #ggthemes::scale_color_gdocs() + ggthemes::scale_fill_gdocs() +
+    #annotate("text",data=results, aes(x=0,y=30,label = paste0(results$Sv.Pct))) +
+    #theme(legend.position = "top") +
+    labs(title=paste0(" Shot and Goal Locations\nCompared to Other League Goalies, Same Seasons"),
+         x="",y="",color="",linetype="",fill="Shot Location\nRelative to League") +
+    guides(alpha = FALSE)
+
+  location_map
+```

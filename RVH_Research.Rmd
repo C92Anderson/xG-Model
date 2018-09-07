@@ -1,0 +1,829 @@
+---
+title: "RVH Research"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(tinytex.verbose = TRUE)
+
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+theme_set(theme_bw())
+
+
+txt <- element_text(size = 18, colour = "grey25", face = "plain")
+bold_txt <- element_text(size = 20, colour = "navy", face = "bold")
+
+theme_standard <- function(base_size = 16, base_family = "") {
+  theme_bw(base_size = base_size, base_family = base_family) +
+    theme(
+      strip.background = element_blank(), 
+      
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_line( colour = "white", size = 2), 
+      panel.grid.major.x = element_line( colour = "white", size = 2), 
+      
+      #strip.text.x = element_text(size = 24),
+      #strip.text.y = element_text(size = 24),
+      
+      panel.background = element_rect(fill="grey90"),
+      plot.background = element_rect(fill="grey90"),
+      legend.background = element_rect(fill="grey90"),
+      legend.key = element_rect(fill="grey90", size = 20),
+      legend.key.size = unit(1,"cm"),
+      
+      panel.border = element_blank(), 
+      
+      line = element_line( colour = "white", size = 2),
+      axis.text.x = element_text(angle = 90, hjust = 1),
+      text = txt, 
+      plot.title = bold_txt, 
+      
+      axis.title = txt, 
+      axis.text = txt, 
+      
+      legend.title = bold_txt, 
+      legend.text = txt ) 
+}
+
+
+## Beta Functions
+calcBetaMode <- function(aa, bb) { BetaMode <- (aa - 1)/(aa + bb - 2); return(BetaMode); }
+calcBetaMean <- function(aa, bb) { BetaMean <- (aa)/(aa + bb); return(BetaMean); }
+calcBetaSd   <- function(aa, bb) { BetaSd <- sqrt((aa * bb)/(((aa + bb)^2) * (aa + bb + 1))); return(BetaSd); }
+
+## Draw Rink
+fun.draw_rink <- function() {
+    
+    
+    
+    xseq <- seq(-4, 4, length = 100)
+    theta1 <- seq(0, 2 * pi, length = 300)
+    theta <- seq(0, 2 * pi, length = 300)
+    dd <- (5 + 7 / 12) / 2
+    
+    ## Blank NHL Rink
+    
+    rink <- ggplot(data = data.frame(x = 1, y = 1), aes(x, y)) + 
+        
+    geom_path(data = data.frame(
+        x = c(15, 87 + 13 * sin(seq(0, pi / 2, length = 20)), 
+            87 + 13 * sin(seq(pi / 2, 0, length = 20)), 15), 
+        y = c(-42.5, -42.5 + 15 - 15 * cos(seq(0, pi / 2, length = 20)), 
+            42.5 - 15 + 15 * cos(seq(pi / 2, 0, length = 20)), 42.5))) + 
+    # geom_path(data = data.frame(
+    #     x = c(15, -87 - 13 * sin(seq(0, pi / 2, length = 20)), 
+    #         -87 - 13 * sin(seq(pi / 2, 0, length = 20)), 15), 
+    #     y = c(-42.5, -42.5 + 15 - 15 * cos(seq(0, pi / 2, length = 20)), 
+    #         42.5 - 15 + 15 * cos(seq(pi / 2, 0, length = 20)), 42.5))) + 
+    ## Goal Lines
+    geom_path(data = data.frame(x = c(89),
+                                y = c(42.5 - 15 + sqrt(15^2 - (15 - 11)^2), 
+                                    -(42.5 - 15 + sqrt(15^2 - (15 - 11)^2)))), 
+              color = 'red') + 
+    # geom_path(data = data.frame(x = c(-89), 
+    #                             y = c(42.5 - 15 + sqrt(15^2 - (15 - 11)^2), 
+    #                                 -(42.5 - 15 + sqrt(15^2 - (15 - 11)^2)))), 
+    #           color = 'red') +
+    ## Nets
+    geom_path(data = data.frame(x = c(90, 92, 92, 90)), y = c(-3, -3, 3, 3)) + 
+    # geom_path(data = data.frame(x = c(-90, -92, -92, -90), y = c(-3,-3, 3, 3))) +
+    
+    ## Restricted Area
+    geom_segment(aes(x = 89, y = -11, xend = 100, yend = -14), color = 'red') + 
+    geom_segment(aes(x = 89, y = 11, xend = 100, yend = 14), color = 'red') + 
+    #geom_segment(aes(x = -89, y = -11, xend = -100, yend = -14), color = 'red') + 
+    #geom_segment(aes(x = -89, y = 11, xend =-100, yend = 14), color = 'red') +
+        
+    ## Red Line (Center Ice)
+    #geom_segment(aes(x = 0, y = -42.5, xend = 0, yend = 42.5), color = 'red', size = 1) +
+    
+    ## Blue Lines
+    geom_segment(aes(x = 25, y = -42.5, xend = 25,  yend = 42.5), color = 'blue', size = 1) + 
+    #geom_segment(aes(x = -25, y = -42.5, xend = -25,  yend = 42.5), color = 'blue', size = 1) +
+        
+    ## Crease
+    geom_polygon(data = data.frame(x = 1 * c(89, 83+xseq^2 / 4^2 * 1.5, 89),
+                                   y = c(-4, xseq, 4)), 
+                 color = 'red', fill = 'deepskyblue2') + 
+    #geom_polygon(data = data.frame(x = -1 * c(89, 83 + xseq^2 / 4^2 * 1.5, 89),
+    #                               y = c(-4, xseq, 4)), 
+    #             color = 'red', fill = 'deepskyblue2') +
+
+    ## Center Ice Circle
+    #geom_path(data = data.frame(x = 15 * sin(theta1)), 
+    #          y = 15 * cos(theta1), color = 'deepskyblue2') +
+        
+    ## Faceoff Dots
+    #geom_polygon(data = data.frame(y = 22 + 1 * cos(theta), 
+    #                               x = 20 + 1 * sin(theta)), 
+    #             color = "red", fill = "red") + 
+    #geom_polygon(data = data.frame(y = 22 + 1 * cos(theta), 
+    #                               x = -20 + 1 * sin(theta)), 
+    #             color = "red", fill = 'red') + 
+    #geom_polygon(data = data.frame(y = -22 + 1 * cos(theta), 
+    #                               x = -20 + 1 * sin(theta)), 
+    #             color = 'red', fill = 'red') + 
+    #geom_polygon(data = data.frame(y = -22 + 1 * cos(theta), 
+    #                               x = 20 + 1 * sin(theta)), 
+    #             color = 'red', fill = 'red') + 
+    #geom_polygon(data = data.frame(y = 22 + 1 * cos(theta), 
+    #                               x = -69 + 1 * sin(theta)), 
+    #             color = 'red', fill = 'red') + 
+    geom_polygon(data = data.frame(y = 22 + 1 * cos(theta), 
+                                   x = 69 + 1 * sin(theta)), 
+                 color = 'red', fill = 'red') + 
+    #geom_polygon(data = data.frame(y = -22 + 1 * cos(theta), 
+    #                               x = -69 + 1 * sin(theta)), 
+    #             color = 'red', fill = 'red') + 
+    geom_polygon(data = data.frame(y = -22 + 1 * cos(theta), 
+                                   x = 69 + 1 * sin(theta)), 
+                 color = 'red', fill = 'red') +
+
+    ## Faceoff Circles
+    geom_segment(aes(y = 22 - 0.75, x = 69 - 2, 
+                     yend = 22 - 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 - 2, 
+                     yend = 22 + 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 + 2, 
+                     yend = 22 + 0.75, xend = 69 + 6), color= 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 - 2, 
+                     yend = 22 - 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 - 2, 
+                     yend = -22 + 0.75, xend = 69 - 6), color= 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 + 2, 
+                     yend = -22 + 0.75, xend = 69 + 6), color= 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 - 2, 
+                     yend = -22 - 0.75, xend = 69 - 6), color = 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 + 2, 
+                     yend = -22 - 0.75, xend = 69 + 6), color = 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 + 2, 
+                     yend = 22 - 0.75, xend = 69 + 6), color = 'red') + 
+    #geom_segment(aes(y = 22 + 0.75, x = -69 - 2, 
+    #                 yend = 22 + 0.75, xend = -69 - 6), color = 'red') + 
+    #geom_segment(aes(y = 22 - 0.75, x = -69 - 2, 
+    #                 yend = 22 - 0.75, xend = -69 - 6), color = 'red') + 
+    #geom_segment(aes(y = 22 + 0.75, x = -69 + 2, 
+    #                 yend = 22 + 0.75, xend = -69 + 6), color = 'red') + 
+    #geom_segment(aes(y = -22 + 0.75, x = -69 - 2, 
+    #                 yend = -22 + 0.75, xend = -69 - 6), color = 'red') + 
+    #geom_segment(aes(y = 22 - 0.75, x = -69 + 2, 
+    #                 yend = 22 - 0.75, xend = -69 + 6), color = 'red') + 
+    #geom_segment(aes(y = -22 + 0.75, x = -69 + 2, 
+    #                 yend = -22 + 0.75, xend = -69 + 6), color= 'red') + 
+    #geom_segment(aes(y = -22 - 0.75, x = -69 - 2, 
+    #                 yend = -22 - 0.75, xend = -69 - 6), color = 'red') + 
+    #geom_segment(aes(y = -22 - 0.75, x = -69 + 2, 
+    #                 yend = -22 - 0.75, xend = -69 + 6), color = 'red') + 
+    geom_segment(aes(y = 22 - 15, x = 69 - dd, 
+                     yend = 22 - 17, xend = 69 - dd), color = 'red') + 
+    geom_segment(aes(y = 22 - 15, x = 69 + dd, 
+                     yend = 22 - 17, xend = 69 + dd), color = 'red') + 
+    geom_segment(aes(y = 22 + 15, x = 69 + dd, 
+                     yend = 22+17, xend = 69 + dd), color = 'red') + 
+    geom_segment(aes(y = 22 + 15, x = 69 - dd, 
+                     yend = 22 + 17, xend = 69 - dd), color = 'red') + 
+    geom_segment(aes(y = -22 + 15, x = 69 - dd, 
+                     yend = -22 + 17, xend = 69 - dd), color = 'red') + 
+    geom_segment(aes(y = -22 + 15, x = 69 + dd, 
+                     yend = -22 + 17, xend = 69 + dd), color = 'red') + 
+    geom_segment(aes(y = -22 - 15, x = 69 - dd, 
+                     yend = -22 - 17, xend = 69 - dd), color= 'red') + 
+    geom_segment(aes(y = -22 - 15, x = 69 + dd, 
+                     yend = -22 - 17, xend = 69 + dd), color = 'red') + 
+    #geom_segment(aes(y = -22 + 15, x = -69 + dd, 
+    #                 yend = -22 + 17, xend = -69 + dd), color = 'red') + 
+    #geom_segment(aes(y = -22 - 15, x = -69 - dd, 
+    #                 yend = -22 - 17, xend = -69 - dd), color = 'red') + 
+    #geom_segment(aes(y = -22 - 15, x = -69 + dd, 
+    #                 yend = -22 - 17, xend = -69 + dd), color = 'red') + 
+    #geom_segment(aes(y = -22 + 15, x = -69 - dd, 
+    #                 yend = -22 + 17, xend = -69 - dd), color = 'red') + 
+    #geom_segment(aes(y = 22 - 15, x = -69 + dd, 
+    #                 yend = 22 - 17, xend = -69 + dd), color = 'red') + 
+    #geom_segment(aes(y = 22 - 15, x = -69 - dd, 
+     #                yend = 22 - 17, xend = -69 - dd), color = 'red') + 
+    #geom_segment(aes(y = 22 + 15, x = -69 - dd, 
+    #                 yend = 22 + 17, xend = -69 - dd), color = 'red') + 
+    #geom_segment(aes(y = 22 + 15, x = -69 + dd, 
+    #                 yend = 22 + 17, xend = -69 + dd), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 + 2, 
+                     yend = 22 + 3.75, xend = 69 + 2), color = 'red') + 
+    geom_segment(aes(y = 22 + 0.75, x = 69 - 2, 
+                     yend = 22 + 3.75, xend = 69 - 2), color = 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 + 2, 
+                     yend = 22 - 3.75, xend = 69 + 2), color = 'red') + 
+    geom_segment(aes(y = 22 - 0.75, x = 69 - 2, 
+                     yend = 22 - 3.75, xend = 69 - 2), color = 'red') + 
+    #geom_segment(aes(y = 22 + 0.75, x = -69 + 2, 
+    #                 yend = 22 + 3.75, xend = -69 + 2), color = 'red') + 
+    #geom_segment(aes(y = 22 + 0.75, x = -69 - 2, 
+    #                 yend = 22 + 3.75, xend = -69 - 2), color = 'red') + 
+    #geom_segment(aes(y = 22 - 0.75, x = -69 + 2, 
+    #                 yend = 22 - 3.75, xend = -69 + 2), color = 'red') + 
+    #geom_segment(aes(y = 22 - 0.75, x = -69 - 2, 
+    #                 yend = 22 - 3.75, xend = -69 - 2), color = 'red') + 
+    #geom_segment(aes(y = -22 - 0.75, x = -69 + 2, 
+    #                 yend = -22 - 3.75, xend = -69 + 2), color = 'red') + 
+    #geom_segment(aes(y = -22 - 0.75, x = -69 - 2, 
+    #                 yend = -22 - 3.75, xend = -69 - 2), color = 'red') + 
+    #geom_segment(aes(y = -22 + 0.75, x = -69 + 2, 
+    #                 yend = -22 + 3.75, xend = -69 + 2), color = 'red') + 
+    #geom_segment(aes(y = -22 + 0.75, x = -69 - 2, 
+    #                 yend = -22 + 3.75, xend = -69 - 2), color = 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 + 2, 
+                     yend = -22 + 3.75, xend = 69 + 2), color = 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 - 2, 
+                     yend = -22 - 3.75, xend = 69 - 2), color = 'red') + 
+    geom_segment(aes(y = -22 + 0.75, x = 69 - 2, 
+                     yend = -22 + 3.75, xend = 69 - 2), color = 'red') + 
+    geom_segment(aes(y = -22 - 0.75, x = 69 + 2, 
+                     yend = -22 - 3.75, xend = 69 + 2), color = 'red') + 
+    geom_path(data = data.frame(y = 22 + 15 * cos(theta), 
+                                x = 69 + 15 * sin(theta)), color = 'red') + 
+    #geom_path(data = data.frame(y = 22 + 15 * cos(theta), 
+    #                            x = -69 + 15 * sin(theta)), color = 'red') + 
+    #geom_path(data = data.frame(y = -22 + 15 * cos(theta), 
+    #                            x = -69 + 15 * sin(theta)), color = 'red') + 
+    geom_path(data = data.frame(y = -22 + 15 * cos(theta), 
+                                x = 69 + 15 * sin(theta)), color = 'red') + 
+        
+    theme_void()
+}
+
+rink <- fun.draw_rink() + coord_fixed()
+
+rink
+```
+
+
+```{r, include=FALSE}
+
+likelihood_mean_fun <- function(Saves, Shots) {
+  
+      # Overall
+      likelihood_a = sum(Shots) - sum(Saves) + 1  ## Saves + 1
+      likelihood_b = sum(Saves) + 1  ## Goals + 1
+      
+      out = calcBetaMean(likelihood_a, likelihood_b)
+
+      return(out)
+}
+
+likelihood_std_fun <- function(Saves, Shots) {
+  
+
+  # Overall
+    likelihood_a = sum(Shots) - sum(Saves) + 1  ## Saves + 1
+    likelihood_b = sum(Saves) + 1  ## Goals + 1
+  
+  out = calcBetaSd(likelihood_a, likelihood_b)
+  return(out)
+  
+}  
+
+```
+
+## What is the RVH?
+
+Growing up almost every coach I had wanted me to stand-up 'more' - more being a relative term. Most made peace with the fact that I was going to try to make the same type of saves as Dominik Hasek or Patrick Roy but since I was still a kid, it would probably help if stood up once in a while. Still they had to choose their battles wisely, most picked the same hill to die on: bad angle shots. It was simple geometry really, with the right stick position you could stand there and cover 100% of the net. Let me tell you, there's nothing worse than standing there while people hack away at your feet knowing you can't cover the puck with your big toe and dropping to your knees with the puck that tight would create a hole anybody could hit.
+
+By time I got to junior and had a goalie coach we worked in the Vertical-Horizontal (VH) to deal with shots from sharp angle. The strong pad would seal the post (vertical) and the back leg would drop sealing the ice (horizontal). There was always a risk of getting your stick tied up and/or getting beat between the post and skate, but used properly it was pretty tough to beat from range, however there were trade-offs. Leading with pad tied up the hands a bit and meant rebounds were more difficult to control. If there was a rebound the VH was configured well to push off the post, but only in one direction. If you had kept your knee tight to the goalline, but need to push to the top of the crease, too bad, you were pushing across the goalline.
+
+The Reverse Vertical Horizontal (RVH) flipped the configuration of the pads, so the strong pad seals the ice (horizontal) and back leg remains anchored (vertical), freeing up the hands and stick more to make plays and allowing rotation with the back leg and push off with the post leg (I would have never dreamed of this, most nets growing up were easy to knock off whenever you needed a conveinent whistle). The back leg can anchor or drop into a butterfly quickly which gives the RVH more flexibility when repeling a play originating from a sharp angle compared to the VH.
+
+This added flexibility has meant RVH has mostly supplanted VH as a tactic for sharp angle shots, but it's not perfect either since it leaves a few holes along the post above the pad, particularly over the shoulder. Additionally, because of its flexibility some goaltender's become too reliant on it, defaulting to it prematural or in situations that don't call for it. After all, throughout the VH and RVH it was always an option to play sharp angle shots more passively standing up (perhaps anticipating a pass or change of angle) or more aggressively by moving off the post and squaring up. The RVH is a great tactic, but it's up to the goalie to assess the shooter speed, handedness, and passing options and defensive support and making a read rather than simply defaulting to the RVH.
+
+## What does the data say?
+
+As early as 2014, [InGoal Magazine's Greg Balloch discussed the RVH being over-used situationally and improperly](http://ingoalmag.com/technique/reverse-vh-common-issues-proper-execution/), including at the NHL level. You don't need to watch too many nights of highlights to see someone who's 6'5" inexplicitly getting beat over the shoulder from a bad angle shot because they were leaning on the post in the RVH. Is this is a growing problem or just the cost of doing business while the benefits outweigh the negatives?
+
+Looking at NHL play-by-play from 2010-2018, we can isolate shots from the RVH has been presumably been used properly and possibly improperly to see if there are any patterns in the:
+
+* Share of shots resulting in goals (obvious why this matters)
+* Number of shots attempted per game (perhaps RVH has encouraged or discouraged bad angle shots)
+* Share of shots resulting in rebounds (are some tactics more prone to rebounds than others)
+* Shooting % on rebounds, or calculated expected goals on rebounds if sample size is too sample (are some tactic more prone to *bad* rebounds that are more likely to be converted in goals or possibly leave the goalie less likely to make the rebound save)
+
+Observing these metrics over the last 8 seasons might reveal a meaningful change in success rates, but it important to caution that while this appear to be a testable tactic, in a complex game like hockey, effects can be hard to pin down. We don't have passing data to reveal if, for example, a more aggressive tactic led to more passing from the sharp angle to more dangerous locations, though the number of attempts per game might lend a hint.
+
+Either way it's possible macro trends don't reveal anything meaningful since there's much that unobserved and the data itself is imperfect. The coordinate data has [been adjusted to hopefully improve accuracy of shot location](http://www.sloansportsconference.com/wp-content/uploads/2013/Total%20Hockey%20Rating%20(THoR)%20A%20comprehensive%20statistical%20rating%20of%20National%20Hockey%20League%20forwards%20and%20defensemen%20based%20upon%20all%20on-ice%20events.pdf).
+
+That said, it is an interesting question, with a potentially meaningful and interesting answer in the data.
+
+First, look at a sample of the data available.
+
+
+```{r load}
+
+## Load data
+load("~/Documents/CWA/Hockey Data/goalie_shot_level_prep.RData")
+
+## Print columns
+head(goalie_shot_level_prep)
+```
+
+## What does the data look like?
+
+We only care about bad angle shots where a goalie might select the RVH tactic, either properly or improperly. To do this we can look at shots within 30ft of the net and sharper than a 45degree angle to the goalline (see below) or from below the goalline. Further we might want to breakout:
+1) Shots within 10ft (RVH seals the ice off, perhaps helping in tight)
+2) Shots within 45degrees to 22.5degrees (an area of the ice where RVH might be over-used) 
+3) Shots within 22.5degrees to 0degrees (an area of the ice where RVH is encouraged)
+4) Shots behind the goalline (generally on recorded as a shot if it deflects off something and bounces, have goalies helped prevent these?)
+Flag and limit to shots in trapazoids on either side of the net.
+Create variables regarding rebounds, rebounds xG, and rebound shooting percentage.
+Plot on rink 
+
+```{r data}
+
+rink <- fun.draw_rink() + coord_fixed()
+
+shot_dist <- 12
+
+## Take all shots and create features
+all_nonrush_shots <- goalie_shot_level_prep %>%
+      arrange(season, Game_Id, Seconds_Elapsed) %>%
+      ## Flag if shot coordinate
+      filter(EmptyNet_SA == 0) %>%
+      filter(is_Rebound == 0) %>%
+      ## Orient all shots on same end of rink
+      mutate(xC = ifelse(Direction == 1, xC, -1 * xC),
+             yC = ifelse(Direction == 1, yC, -1 * yC),
+             Results_inRebound = ifelse(Results_inRebound == 1 & lead(Shot_Distance) <= 30, 1, 0)) %>%
+      ## Limit variables
+      select(xC, yC, is_Rebound, Results_inRebound, xR, Goal, SA_Goalie, Player_Position2, p1_name, season, Game_Id, Seconds_Elapsed, lagged_Event, Type, Strength, xG, Shooter_Handedness, Handed_Class, Game_State, Shot_Distance) %>%
+      ## Create variables
+      mutate(bad_angle = ifelse(((abs(yC) > 3) & (xC <= 89) & (xC >=79) & (xC >= (89 - (0.5 * abs(yC))))) | (xC > 89 & abs(yC) > 3)
+                                  , 1, 0),
+             rebound_xG = ifelse(bad_angle == 1 & Results_inRebound == 1, lead(xG), NA),
+             rebound_actualG = ifelse(bad_angle == 1 & Results_inRebound == 1, lead(Goal), NA),
+             rebound_yC = ifelse(bad_angle == 1 & Results_inRebound == 1, lead(yC), NA),
+             rebound_xC = ifelse(bad_angle == 1 & Results_inRebound == 1, lead(xC), NA),
+             strong_hand_shooter = ifelse((yC < 0 & Shooter_Handedness == "L") | (yC > 0 & Shooter_Handedness == "R"),
+                                          "Strong", "Weak")
+) 
+
+## Limit to bad angle shots
+bad_angle_shots <- all_nonrush_shots %>%
+      filter(bad_angle == 1) %>%
+      mutate(angle_type = ifelse(xC > 89,"BehindNet",
+                          ifelse(Shot_Distance < shot_dist & (xC >= (89 - (0.25 * abs(yC)))),"Close-PoorAngle",
+                          ifelse(Shot_Distance < shot_dist,"Close-DecentAngle",
+                          ifelse((xC >= (89 - (0.25 * abs(yC)))),"Long-PoorAngle",
+                          "Long-DecentAngle"))))) %>% 
+      filter(angle_type != "BehindNet") 
+
+
+angle_sh_pct <- bad_angle_shots %>%
+      filter(Game_State %in% c("5v4","5v5")) %>%
+      filter(bad_angle == 1) %>%
+      group_by(angle_type) %>%
+      summarise(yC = mean(ifelse(yC>0, yC, NA),na.rm=T),
+                xC = mean(xC),
+                shooting_angle = paste0(round(likelihood_mean_fun(n()-sum(Goal),n()),3) * 100,"%"))
+
+
+## Plot shots  
+rink_wshots <- rink + geom_jitter(aes(x = xC, y = yC, color = as.factor(angle_type)), alpha = 0.8,
+                  data = bad_angle_shots) +
+        ggthemes::scale_color_gdocs() +
+        ggrepel::geom_label_repel(data = angle_sh_pct, size = 6, aes(x = xC, y = yC, label = shooting_angle, color = as.factor(angle_type))) +
+        labs(color = "Angle Class",
+             title = "Areas of Analysis\nCulumative Shooting Percentage Labelled") +
+        theme(plot.title = bold_txt,
+              legend.title=element_text(size=16), 
+              legend.text=element_text(size=12)
+              ) 
+
+rink_wshots
+
+ggsave(filename = "/Users/colander1/Downloads/rink_wshots.png", plot = rink_wshots, height = 12, width = 16)
+
+```
+
+### Calculate Sv% and Rebound% From Bad Angle Shots
+
+```{r, include=FALSE}
+
+bad_angle_shots_sums <- bad_angle_shots %>%
+      filter(Game_State %in% c("5v4","5v5")) %>%
+      filter(bad_angle == 1) %>%
+      group_by(season, Game_State, angle_type) %>%
+      summarise(`Bad Angle Attempts` = n(),
+                `Bad Angle Shooting % - Mean` = likelihood_mean_fun(n()-sum(Goal),n()),
+                `Bad Angle Shooting % - StdDev` = likelihood_std_fun(n()-sum(Goal),n()),
+                `Bad Angle Rebound % - Mean` = likelihood_mean_fun(n()-sum(Results_inRebound),n()),
+                `Bad Angle Rebound % - StdDev` = likelihood_std_fun(n()-sum(Results_inRebound),n()),
+                
+                `Bad Angle Rebound Shooting % - Mean` = likelihood_mean_fun(sum(Results_inRebound)-sum(rebound_actualG,na.rm = T),sum(Results_inRebound)),
+                `Bad Angle Rebound Shooting % - StdDev` = likelihood_std_fun(sum(Results_inRebound)-sum(rebound_actualG,na.rm = T),sum(Results_inRebound)),
+                
+                `Bad Angle Rebound Shooting %` = mean(rebound_xG,na.rm=T),
+                `Bad Angle Shooting % - Expected` = mean(Goal) - mean(xG),
+                `Bad Angle Rebound % - Expected` = mean(Results_inRebound) - mean(xR)) %>%
+      left_join(all_nonrush_shots %>%
+                    filter(Game_State %in% c("5v4","5v5")) %>%
+                    group_by(season, Game_State) %>%
+                    summarise(total_shots = n()), by = c("season","Game_State")) %>%
+      group_by(season, Game_State, angle_type) %>%
+      mutate(`Bad Angle Attempts /\nAll NonRush Shots - Mean` = likelihood_mean_fun(total_shots-`Bad Angle Attempts`,total_shots),
+             `Bad Angle Attempts /\nAll NonRush Shots - StdDev` = likelihood_std_fun(total_shots-`Bad Angle Attempts`,total_shots)
+             ) %>% 
+      select(-c(total_shots))
+
+```
+
+### Calculate Shooting% From Bad Angle Shots
+
+```{r}
+
+bad_angle_shots_data <- bad_angle_shots_sums %>%
+    select(-c(`Bad Angle Shooting % - Expected`,`Bad Angle Rebound % - Expected`)) %>%
+    melt(id.var = c("season","Game_State","angle_type")) %>%
+    tidyr::separate(variable, c("Metric","Measure"), sep = "[-]", remove=T) %>%
+    na.omit() %>%
+    dcast(season + Game_State + angle_type + Metric ~ trimws(Measure), value.var = "value") %>%
+    group_by(Metric, Game_State, angle_type) %>%
+    mutate(Percentile = percent_rank(`Mean`))
+
+bad_angle_shooting_line_plot <- bad_angle_shots_data %>%
+    filter(Metric == "Bad Angle Shooting % ") %>%
+    filter(angle_type != "BehindNet") %>%
+    filter(Game_State == "5v5") %>%
+    ggplot(aes(x=as.factor(season), y=Mean, color=as.factor(angle_type)
+               )) +
+    geom_hline(yintercept = 0, color = "grey50", size = 4) +
+    geom_line(size = 5) +
+    geom_errorbar(aes(ymin=Mean-StdDev, ymax=Mean+StdDev), width=.1, position=position_dodge(0.1), size = 6, alpha = 0.5) +
+    facet_grid(Game_State~., scales = "free_y") +
+    ggthemes::scale_color_gdocs() +
+    theme_standard() +
+    scale_y_continuous(labels = scales::percent) + 
+    labs(y="Shooting %",x="Season",color = "",
+         title = "Bad Angle Shots, Shooting %\n5v5, 2010 - 2018\n@crowdscoutsprts (github.com/C92Anderson/xG-Model)")
+
+ggsave(filename = "/Users/colander1/Downloads/bad_angle_shooting_line_plot.png", plot = bad_angle_shooting_line_plot, height = 12, width = 18)
+
+bad_angle_shooting_line_plot
+
+```
+
+### Calculate Rebound% From Bad Angle Shots
+
+```{r}
+
+bad_angle_rebound_line_plot <- bad_angle_shots_data %>%
+    filter(Metric == "Bad Angle Rebound % ") %>%
+    filter(angle_type != "BehindNet") %>%
+    filter(Game_State == "5v5") %>%
+    ggplot(aes(x=as.factor(season), y=Mean, color=as.factor(angle_type)
+               )) +
+    geom_hline(yintercept = 0, color = "grey50", size = 4) +
+    geom_line(size = 5) +
+    geom_errorbar(aes(ymin=Mean-StdDev, ymax=Mean+StdDev), width=.1, position=position_dodge(0.1), size = 6, alpha = 0.5) +
+    facet_grid(Game_State~., scales = "free_y") +
+    ggthemes::scale_color_gdocs() +
+    theme_standard() +
+    scale_y_continuous(labels = scales::percent) + 
+    labs(y="Rebound %",x="Season",color = "",
+         title = "Bad Angle Shots, Rebound %\n5v5, 2010 - 2018\n@crowdscoutsprts (github.com/C92Anderson/xG-Model)")
+
+ggsave(filename = "/Users/colander1/Downloads/bad_angle_rebound_line_plot.png", plot = bad_angle_rebound_line_plot, height = 12, width = 18)
+
+bad_angle_rebound_line_plot
+
+```
+
+### Calculate Shooting% From Bad Angle Shots
+
+```{r}
+
+bad_angle_rebound_shooting_line_plot <- bad_angle_shots_data %>%
+    filter(Metric == "Bad Angle Rebound Shooting % ") %>%
+    filter(angle_type != "BehindNet") %>%
+    filter(Game_State == "5v5") %>%
+    ggplot(aes(x=as.factor(season), y=Mean, color=as.factor(angle_type)
+               )) +
+    geom_hline(yintercept = 0, color = "grey50", size = 4) +
+    geom_line(size = 5) +
+    geom_errorbar(aes(ymin=Mean-StdDev, ymax=Mean+StdDev), width=.1, position=position_dodge(0.1), size = 6, alpha = 0.5) +
+    facet_grid(Game_State~., scales = "free_y") +
+    ggthemes::scale_color_gdocs() +
+    theme_standard() +
+    scale_y_continuous(labels = scales::percent) + 
+    labs(y="Rebound Shooting %",x="Season",color = "",
+         title = "Bad Angle Shots, Rebound Shooting %\n5v5, 2010 - 2018\n@crowdscoutsprts (github.com/C92Anderson/xG-Model)")
+
+ggsave(filename = "/Users/colander1/Downloads/bad_angle_rebound_shooting_line_plot.png", plot = bad_angle_rebound_shooting_line_plot, height = 12, width = 18)
+
+bad_angle_rebound_line_plot
+
+```
+
+### Calculate Shooting% From Bad Angle Shots
+
+```{r}
+
+bad_angle_attempts_line_plot <- bad_angle_shots_data %>%
+    filter(Metric == "Bad Angle Attempts /\nAll NonRush Shots ") %>%
+    filter(Game_State %in% c("5v4","5v5")) %>%
+    ggplot(aes(x=as.factor(season), y=Mean, color=as.factor(angle_type)
+                )) +
+    geom_hline(yintercept = 0, color = "grey50", size = 4) +
+    geom_line(size = 5) +
+    geom_errorbar(aes(ymin=Mean-StdDev, ymax=Mean+StdDev), width=.1, position=position_dodge(0.1), size = 6, alpha = 0.5) +
+    facet_grid(.~Game_State, scales = "free_y") +
+    ggthemes::scale_color_gdocs() +
+    theme_standard() +
+    scale_y_continuous(labels = scales::percent) + 
+    labs(y="Bad Angle Attempts as a Share of Total Shots",x="Season",color = "",
+         title = "Bad Angle Attempts as a Share of Total Shots\n5v5 and 5v4, 2010 - 2018\n@crowdscoutsprts (github.com/C92Anderson/xG-Model)")
+
+ggsave(filename = "/Users/colander1/Downloads/bad_angle_attempts_line_plot.png", plot = bad_angle_attempts_line_plot, height = 12, width = 18)
+
+bad_angle_attempts_line_plot
+
+```
+
+### Calculate Sv% and Rebound% From Bad Angle Shots
+
+```{r}
+
+bad_angle_shots_sums <- bad_angle_shots %>%
+      filter(Game_State %in% c("5v4","5v5")) %>%
+      filter(bad_angle == 1) %>%
+      group_by(season, Game_State, strong_hand_shooter) %>%
+      summarise(`Total Shots` = n(),
+                `Bad Angle Attempts / All Non-Rush Shots` = n(),
+                `Bad Angle Shooting %` = mean(Goal),
+                `Bad Angle Rebound %` = mean(Results_inRebound),
+                `Bad Angle Shooting % - Expected` = mean(Goal) - mean(xG),
+                `Bad Angle Rebound % - Expected` = mean(Results_inRebound) - mean(xR)) %>%
+      left_join(all_nonrush_shots %>% group_by(season, Game_State,strong_hand_shooter) %>%
+                   summarise(total_shots = n()), by = c("season","Game_State","strong_hand_shooter")) %>%
+      mutate(`Bad Angle Attempts / All Non-Rush Shots` = `Bad Angle Attempts / All Non-Rush Shots` / total_shots) %>% 
+      select(-c(total_shots))
+
+
+bad_angle_shots_line_plot <- bad_angle_shots_sums %>%
+    select(-c(`Total Shots`)) %>%
+    melt(id.var = c("season","Game_State","strong_hand_shooter")) %>%
+    group_by(variable, strong_hand_shooter, Game_State) %>%
+    mutate(`Percentile` = percent_rank(value)) %>%
+    filter(!variable %in% c("Bad Angle Shooting % - Expected","Bad Angle Rebound % - Expected")) %>%
+    ggplot(aes(x=as.factor(season), y=value, color=as.factor(variable)
+               )) +
+    geom_hline(yintercept = 0, color = "grey50", size = 4) +
+    geom_line(size = 5) +
+    facet_grid(Game_State~strong_hand_shooter, scales = "free_y") +
+    ggthemes::scale_color_gdocs() +
+    theme_standard() +
+    scale_y_continuous(labels = scales::percent) + 
+    labs(y="Shooting, Rebound, and Attempt Rate",x="Season",color = "",
+         title = "Bad Angle Shots, Shooting, Rebound, and Attempt Rate by Handedness\n5v5 and 5v4, 2010 - 2018\n@crowdscoutsprts (github.com/C92Anderson/xG-Model)")
+
+ggsave(filename = "/Users/colander1/Downloads/bad_angle_handedshots_line_plot.png", plot = bad_angle_shots_line_plot, height = 12, width = 16)
+
+bad_angle_shots_line_plot
+
+```
+
+### Calculate xG on Rebounds From Bad Angle Shots
+
+```{r}
+
+bad_angle_shots_sums <- bad_angle_shots %>%
+      filter(Game_State %in% c("5v4","5v5")) %>%
+      filter(bad_angle == 1) %>%
+      group_by(season, Game_State, angle_type) %>%
+      summarise(`Mean Expected Goal on Rebound` = mean(rebound_xG, na.rm = T)) 
+
+
+bad_angle_shots_xG_line_plot <- bad_angle_shots_sums %>%
+    melt(id.var = c("season","angle_type","Game_State")) %>%
+    group_by(variable, Game_State) %>%
+    mutate(`Percentile` = percent_rank(value)) %>%
+    ggplot(aes(x=as.factor(season), y=value, color=as.factor(angle_type), group=as.factor(angle_type)
+               )) +
+    geom_hline(yintercept = 0, color = "grey50", size = 4) +
+    geom_line(size = 5) +
+    facet_grid(.~Game_State, scales = "free_y") +
+    ggthemes::scale_color_gdocs() +
+    theme_standard() +
+    scale_y_continuous(labels = scales::percent) + 
+    labs(y="Expected Probability of Goal on Rebound",x="Season",color = "",
+         title = "Bad Angle Shots, Mean Expected Goal on Rebound\n5v5 and 5v4, 2010 - 2018\n@crowdscoutsprts (github.com/C92Anderson/xG-Model)")
+
+ggsave(filename = "/Users/colander1/Downloads/bad_angle_shots_xG_line_plot.png", plot = bad_angle_shots_xG_line_plot, height = 10, width = 16)
+
+bad_angle_shots_xG_line_plot
+
+```
+
+```{r}
+
+
+goalie_test_splits <- function(goalie) {
+
+  print(goalie)
+  szns <- as.numeric(unique(bad_angle_shots[bad_angle_shots$SA_Goalie == goalie, "season"])) 
+  
+  szns <- szns + rep(1, length(szns))
+  
+  area_scores <- data.frame()
+  
+  for(i in szns[1:length(szns)-1]) {
+    
+    print(i)
+    ## Area Scores
+    goalie_bad_angle_data <- bad_angle_shots %>%
+        filter(SA_Goalie == goalie) %>%
+        filter(Game_State %in% c("5v5")) %>%
+        filter(bad_angle == 1) %>%
+        mutate(Period = ifelse(season < i, "Pre","Post")) %>%
+        group_by(angle_type, Period) %>%
+        summarise(Goal = sum(ifelse(Goal == 1,1,0)),
+                   Save = n() - Goal
+                   #Shots = n()
+                  )    
+    
+    
+    for(area in unique(goalie_bad_angle_data$angle_type)) {
+      
+      data <- goalie_bad_angle_data %>% 
+        filter(angle_type == area) %>%
+        ungroup() 
+      
+      test <- data %>%
+        select(Goal, Save) %>%
+        t() %>%
+        prop.test()
+      
+      area_score <- data.frame(Goalie = goalie,
+                               Season_Split = i,
+                               Area = area,
+                               X_squared = test$statistic,
+                               P_value = test$p.value,
+                               PreGoal = as.numeric(data[2,"Goal"]),
+                               PostGoal = as.numeric(data[1,"Goal"]),
+                               PreSave = as.numeric(data[2,"Save"]),
+                               PostSave = as.numeric(data[1,"Save"])
+                               )
+      
+      area_scores <- rbind(area_scores, area_score)
+      
+    }
+      
+    ## Total Scores
+    total_data <- bad_angle_shots %>%
+      filter(SA_Goalie == goalie) %>%
+      filter(Game_State %in% c("5v5")) %>%
+      filter(bad_angle == 1) %>%
+      mutate(Period = ifelse(season < i, "Pre","Post")) %>%
+      group_by(Period) %>%
+      summarise(Goal = sum(ifelse(Goal == 1,1,0)),
+                 Save = n() - Goal
+                )  %>% 
+      ungroup() 
+    
+    total_test <- total_data %>%
+      select(Goal, Save) %>%
+      t() %>%
+      prop.test()
+    
+    area_total_score <- data.frame(Goalie = goalie,
+                             Season_Split = i,
+                             Area = "Total",
+                             X_squared = total_test$statistic,
+                             P_value = total_test$p.value,
+                             PreGoal = as.numeric(total_data[2,"Goal"]),
+                             PostGoal = as.numeric(total_data[1,"Goal"]),
+                             PreSave = as.numeric(total_data[2,"Save"]),
+                             PostSave = as.numeric(total_data[1,"Save"])
+                             )
+    
+    area_scores <- rbind(area_scores, area_total_score)
+    
+    
+  }
+   
+  return(area_scores) 
+    
+}
+
+goalie_list <- bad_angle_shots %>% 
+    group_by(SA_Goalie, season) %>%
+    summarise(Shots = n()) %>%
+    #filter(Shots > 100) %>%
+    group_by(SA_Goalie) %>%
+    summarise(Szn_Cnt = n_distinct(season)) %>%
+    filter(Szn_Cnt >= 5)
+    
+goalie_bad_angle_splits <- do.call(rbind,lapply(FUN=goalie_test_splits,goalie_list$SA_Goalie))
+
+print("Done")
+```
+
+## Plot Season to Season Changes for All Bad Angle Shots
+
+```{r}
+
+szn_splits <- sort(unique(goalie_bad_angle_splits$Season_Split))
+szn_labs <- paste0(seq(2011, 2017, by = 1)," Off-Season")
+
+szn_xwalk <- data.frame(szn_splits, szn_labs)
+
+
+goalie_bad_angle_splits$Area = factor(goalie_bad_angle_splits$Area, levels=c('Total','Close-DecentAngle','Close-PoorAngle','Long-DecentAngle','Long-PoorAngle'))
+
+goalie_bad_angle_splits_clean <- goalie_bad_angle_splits %>%
+      left_join(szn_xwalk, by = c("Season_Split" = "szn_splits")) %>%
+      mutate(Before = PreGoal / (PreGoal + PreSave),
+             After = PostGoal / (PostGoal + PostSave),
+             Total_Shots = PreGoal + PostGoal + PreSave + PostSave
+             ) %>%
+      select(-ends_with("Save"),-ends_with("Goal"),-c(Season_Split)) %>%
+      reshape2::melt(id.vars = c("Goalie","szn_labs","P_value","X_squared","Area","Total_Shots"))
+
+goalie_bad_angle_splits_plot <- goalie_bad_angle_splits_clean %>%
+            mutate(Goalie_Lab = ifelse(Goalie %in% c('CAREY PRICE','BRIAN ELLIOTT','JONATHAN QUICK','RYAN MILLER','BRADEN HOLTBY','JONAS HILLER','SERGEI BOBROVSKY','SEMYON VARLAMOV','MARC-ANDRE FLEURY','TUUKKA RASK','ROBERTO LUONGO','DEVAN DUBNYK'),as.character(Goalie),"OTHER"),
+                   Goalie_Lab2 = ifelse(Goalie %in% c('CAREY PRICE','BRIAN ELLIOTT','JONATHAN QUICK','RYAN MILLER','BRADEN HOLTBY','JONAS HILLER','SERGEI BOBROVSKY','SEMYON VARLAMOV','MARC-ANDRE FLEURY','TUUKKA RASK','ROBERTO LUONGO','DEVAN DUBNYK') & P_value <= 0.05 & variable == "After",as.character(sapply(strsplit(as.character(Goalie), ' '), function(x) x[length(x)])),NA)
+                   ) %>%
+            filter(Area == "Total") %>%
+            ggplot(aes(x = as.factor(variable), 
+                       size = X_squared,
+                       y=1-value,
+                       alpha = X_squared,
+                       color = Goalie_Lab,
+                       label = Goalie_Lab2,
+                       linetype = Goalie_Lab,
+                       group = Goalie
+                       )) +
+            geom_line() +  
+            facet_grid(Area~szn_labs) +
+            theme_standard() +
+            ggthemes::scale_color_gdocs() +
+            scale_y_continuous(labels = scales::percent) +
+            ggrepel::geom_label_repel(size = 6, alpha = 1, nudge_x = 1, color = "grey50") +
+            labs(title = "Save Percentage on 5v5 Bad Angle Shots, Comparing Before and After 2011-2017 Off-Seasons\nStatistically Significant Differences Labeled\n@crowdscoutsprts (github.com/C92Anderson/xG-Model)",
+                 y = "Save Percentage",
+                 x = "",
+                 color = "Goalie",
+                 linetype = "Goalie",
+                 size = "Chi-Square\n(Statistical Significance\nat >3.85)",
+                 alpha = "Chi-Square\n(Statistical Significance\nat >3.85)") 
+
+
+ggsave(filename = "/Users/colander1/Downloads/goalie_bad_angle_splits_plot.png", plot = goalie_bad_angle_splits_plot, height = 12, width = 24)
+
+goalie_bad_angle_splits_plot
+
+```
+
+## Plot Season to Season Changes for Bad Angle Shots by Area
+
+```{r}
+
+goalie_bad_angle_splits_plot2 <- goalie_bad_angle_splits_clean %>%
+            mutate(Goalie_Lab = ifelse(Goalie %in% c('CAREY PRICE','BRIAN ELLIOTT','JONATHAN QUICK','RYAN MILLER','BRADEN HOLTBY','JONAS HILLER','SERGEI BOBROVSKY','SEMYON VARLAMOV','MARC-ANDRE FLEURY','TUUKKA RASK','ROBERTO LUONGO','DEVAN DUBNYK'),as.character(Goalie),"OTHER"),
+                   Goalie_Lab2 = ifelse(Goalie %in% c('CAREY PRICE','BRIAN ELLIOTT','JONATHAN QUICK','RYAN MILLER','BRADEN HOLTBY','JONAS HILLER','SERGEI BOBROVSKY','SEMYON VARLAMOV','MARC-ANDRE FLEURY','TUUKKA RASK','ROBERTO LUONGO','DEVAN DUBNYK') & P_value <= 0.05 & variable == "After",as.character(sapply(strsplit(as.character(Goalie), ' '), function(x) x[length(x)])),NA),
+                   ) %>%
+            filter(Area != "Total") %>%
+            ggplot(aes(x = as.factor(variable), 
+                       size = X_squared,
+                       y=1-value,
+                       alpha = X_squared,
+                       color = Goalie_Lab,
+                       label = Goalie_Lab2,
+                       group = Goalie
+                       )) +
+            geom_line() +  
+            facet_grid(Area~szn_labs) +
+            theme_standard() +
+            ggthemes::scale_color_gdocs() +
+            scale_y_continuous(labels = scales::percent) +
+            ggrepel::geom_label_repel(size = 6, alpha = 1, nudge_x = 1) +
+            labs(title = "Save Percentage on 5v5 Bad Angle Shots, Comparing Before and After 2011-2017 Off-Seasons\nStatistically Significant Differences Labeled\n@crowdscoutsprts (github.com/C92Anderson/xG-Model)",
+                 y = "Save Percentage",
+                 x = "",
+                 color = "Goalie",
+                 size = "Chi-Square\n(Statistical Significance\nat >3.85)",
+                 alpha = "Chi-Square\n(Statistical Significance\nat >3.85)") 
+
+
+ggsave(filename = "/Users/colander1/Downloads/goalie_bad_angle_splits_plot2.png", plot = goalie_bad_angle_splits_plot2, height = 12, width = 24)
+
+goalie_bad_angle_splits_plot2
+
+
+```
+
+```{r}
+
+raanta <- goalie_test_splits("ANTTI RAANTA")
+
+```

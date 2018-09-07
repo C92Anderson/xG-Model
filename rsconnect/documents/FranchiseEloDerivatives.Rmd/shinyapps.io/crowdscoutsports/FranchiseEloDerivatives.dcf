@@ -1,0 +1,12 @@
+name: FranchiseEloDerivatives
+title: FranchiseEloDerivatives
+username:
+account: crowdscoutsports
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 393876
+bundleId: 1514810
+url: https://crowdscoutsports.shinyapps.io/FranchiseEloDerivatives/
+when: 1533226221.16366
+asMultiple: FALSE
+asStatic: FALSE

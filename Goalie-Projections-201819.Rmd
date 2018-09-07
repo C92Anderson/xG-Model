@@ -1,0 +1,1189 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache=TRUE)
+
+##https://www.sbnation.com/nhl/2013/10/14/4835042/nhl-stats-goalies-performance-predictions
+##http://nhlnumbers.com/2016/9/14/using-marcel-projections-for-goalies-in-the-2016-17-season
+##https://hockey-graphs.com/2014/04/19/projecting-future-goalie-performance-updating-and-improving-hockey-marcels/
+##https://hockey-graphs.com/2014/02/03/forecasting-future-goalie-performance-with-four-year-hockey-marcels/
+
+require(MASS);
+require(dplyr);
+library(ggplot2);library(MASS);library(dplyr); library(DataCombine)
+library(glmnet); library(nhlscrapr); library(caret); library(RMySQL); library(readr); library(reshape2); library(rvest)
+library(httr); library(data.table); library(reshape2);
+library(shiny)
+library(ggplot2)
+library(xts)
+library(RMySQL)
+library(DBI)
+library(scales)
+
+txt <- element_text(size = 18, colour = "grey25", face = "plain")
+bold_txt <- element_text(size = 20, colour = "navy", face = "bold")
+
+theme_standard <- function(base_size = 16, base_family = "") {
+  theme_bw(base_size = base_size, base_family = base_family) +
+    theme(
+      strip.background = element_blank(), 
+      
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_line( colour = "white", size = 2), 
+      
+      panel.background = element_rect(fill="grey90"),
+      plot.background = element_rect(fill="grey90"),
+      legend.background = element_rect(fill="grey90"),
+      legend.key = element_rect(fill="grey90", size = 20),
+      legend.key.size = unit(1,"cm"),
+      
+      panel.border = element_blank(), 
+      
+      line = element_line( colour = "white", size = 2),
+      axis.text.x = element_text(angle = 90, hjust = 1),
+      text = txt, 
+      plot.title = bold_txt, 
+      
+      axis.title = txt, 
+      axis.text = txt, 
+      
+      legend.title = bold_txt, 
+      legend.text = txt ) 
+}
+
+
+```
+
+### 1. Scored Data from 2009-2017 and ready for analysis
+
+```{r}
+
+load("~/Documents/CWA/Hockey Data/scored_data.RData")
+
+## Beta Functions
+calcBetaMode <- function(aa, bb) { BetaMode <- (aa - 1)/(aa + bb - 2); return(BetaMode); }
+calcBetaMean <- function(aa, bb) { BetaMean <- (aa)/(aa + bb); return(BetaMean); }
+calcBetaSd   <- function(aa, bb) { BetaSd <- sqrt((aa * bb)/(((aa + bb)^2) * (aa + bb + 1))); return(BetaSd); }
+
+
+
+
+conn <- dbConnect(MySQL(), user='ca_elo_games', password='cprice31!',
+                  host='mysql.crowdscoutsports.com', db='nhl_all')
+on.exit(dbDisconnect(conn))
+
+goalie_roster <- dbGetQuery(conn, "SELECT distinct upper(playerName) as `SA_Goalie`, playerId as nhl_id, playerHeight as height,  
+                            playerShootsCatches as Catches, playerBirthDate as dob FROM `nhl_all`.`hockey_goalies_roster` AS A")
+
+
+goalie_roster <- goalie_roster %>%
+  mutate(SA_Goalie = ifelse(SA_Goalie == "MATTHEW MURRAY","MATT MURRAY",
+                     ifelse(SA_Goalie == "OLIE KOLZIG","OLAF KOLZIG",
+                     ifelse(SA_Goalie == "STEPHEN VALIQUETTE","STEVE VALIQUETTE",
+                     ifelse(SA_Goalie == "THOMAS MCCOLLUM","TOM MCCOLLUM",
+                     ifelse(SA_Goalie == "JEAN-SEBASTIEN AUBIN", "J-SEBASTIEN AUBIN",
+                     ifelse(SA_Goalie == "ALEXANDER PECHURSKIY","ALEXANDER PECHURSKI",
+                                   SA_Goalie))))))) %>%
+  unique()
+
+
+### Find replacement goalies and clean names
+goalie_labels <- scored_data %>%  
+        filter(nchar(as.character(SA_Goalie)) > 0) %>%
+        mutate(SA_Goalie_Id = ifelse(SA_Goalie == "THOMAS MCCOLLUM" & SA_Goalie_Id == 0, as.integer(8474591), as.integer(SA_Goalie_Id))) %>%
+        group_by(SA_Goalie_Id, SA_Goalie) %>%
+        summarise(Shots = n(),
+                  Seasons = n_distinct(season),
+                  Games = n_distinct(Game_Id),
+                  LastSeason = max(season)) %>%
+        arrange(-Shots) %>%
+        group_by(SA_Goalie_Id) %>%
+        mutate(SA_Goalie = ifelse(Shots == max(Shots),as.character(SA_Goalie),NA)) %>%
+        tidyr::fill(SA_Goalie) %>%
+        mutate(Replacement = ifelse(Shots < 1000 & LastSeason %in% c("20112012","20122013","20132014","20142015","20152016","20162017"),
+                                    1, 0)) %>%
+        dplyr::select(SA_Goalie_Id, SA_Goalie, Replacement) %>% 
+        filter(SA_Goalie_Id > 0)
+
+goalie_data_prep <- scored_data %>%
+  filter(season != "20072008") %>%
+  dplyr::select(-c(SA_Goalie)) %>%
+  inner_join(goalie_labels, by = "SA_Goalie_Id") %>%
+  mutate(SA_Team = ifelse(Ev_Team == Home_Team, as.character(Away_Team), as.character(Home_Team)),
+         NonRebound_Shot = ifelse(is_Rebound == 0, 1, 0),
+         xG_FirstShot = ifelse(is_Rebound == 0, xG, 0)) 
+
+rebound_goal_probability <- goalie_data_prep %>% 
+  filter(is_Rebound == 1) %>%
+  summarise(rebound_goal_probability = sum(Goal) / n())
+
+goalie_shot_level_prep <- goalie_data_prep %>%
+  cbind(rebound_goal_probability) %>%
+  left_join(goalie_roster[c("nhl_id","dob")], by = c("SA_Goalie_Id" = "nhl_id")) %>%
+  mutate(Age = as.numeric(round((as.Date(paste0("10/1/",as.numeric(substr(season,1,4))), format = "%m/%d/%Y") - as.Date(dob)) / 365.25,1))) 
+
+
+```
+
+### 1. Find Beta Distribution of season-level xGA - GA / 100 Shots
+
+```{r}
+
+goalie_season_beta <- goalie_shot_level_prep %>%
+        group_by(SA_Goalie, season, Age) %>%
+        summarise(xG_Lift_100Shots = (sum(xG) - sum(Goal)) / (n() / 100),
+                  NonRebound_Shots = sum(NonRebound_Shot),
+                  Shots = n(),
+                  `Observed Save % (Non-Rebound Shots)` = (NonRebound_Shots - sum(Goal)) / NonRebound_Shots, 
+                  `Observed Save % (All Shots)` = (Shots - sum(Goal)) / Shots, 
+                  xG_FirstShot = sum(xG_FirstShot),
+                  xG = sum(xG),
+                  xG_RB = sum(xR * rebound_goal_probability),
+                  xG_raw = sum(xG_raw),
+                  xG_xR_Lift_100Shots = (sum(xG_FirstShot + xG_RB) -sum(Goal)) / (sum(NonRebound_Shot) / 100),
+                  `Beta Distribution - Expected Save % (Non-Rebound Shots)` = (1 - ( (xG_FirstShot + xG_RB) / NonRebound_Shots)),
+                  `Beta Distribution - Expected Save %  (All Shots)` = (1 - (xG / Shots))) %>%
+          filter(Shots > 500) 
+
+# just like the graph, we have to filter for the players we actually
+# have a decent estimate of
+alpha_beta <- function(vec) {
+  
+#m <- MASS::fitdistr(vec, dbeta, start = list(shape1 = 1, shape2 = 10))
+fit_beta <- fitdistrplus::fitdist(vec, distr = "beta", method = "mme", lower = c(0, 0), start = list(scale = 0.9, shape = 1))
+alpha0 <- fit_beta$estimate[1]
+beta0 <- fit_beta$estimate[2]
+
+return(list(alpha0, beta0))
+}
+
+first_shot <- alpha_beta(goalie_season_beta$`Beta Distribution - Expected Save % (Non-Rebound Shots)`)
+all_shots <- alpha_beta(goalie_season_beta$`Beta Distribution - Expected Save %  (All Shots)`)
+
+x <- seq(0,1,length=10000)
+
+goalie_season_beta_distribution <- goalie_season_beta %>%
+          ungroup() %>%
+          dplyr::select(starts_with("Observed"),
+                 starts_with("Beta")) %>%
+          as.data.frame() %>%
+          reshape2::melt() %>%
+          mutate(Metric = ifelse(variable %in% c("Observed Save % (Non-Rebound Shots)","Beta Distribution - Expected Save % (Non-Rebound Shots)"),"Non-Rebound Shots","All Shots"),
+                 Type = ifelse(variable %in% c("Observed Save % (Non-Rebound Shots)","Observed Save % (All Shots)"),"Observed Save %","Beta Distribution\nExpected Save %"))
+    
+goalie_season_beta_distribution_plt <- goalie_season_beta_distribution %>%
+    ggplot(aes(value, color=Type, fill=Type)) +
+    geom_density(alpha=0.4) +
+    facet_wrap(~ Metric) +
+    scale_x_continuous(labels = scales::percent, limits = c(0.85, 1)) +
+    #stat_function(fun = function(x) dbeta(x, first_shot[[1]], first_shot[[2]]), color = "#109618", size = 1) +    
+    #stat_function(fun = function(x) dbeta(x, all_shots[[1]], all_shots[[2]]), color = "#990099", size = 1) +    
+    theme_standard() + ggthemes::scale_color_gdocs() + ggthemes::scale_fill_gdocs() +
+    labs(title = "Distrubtion of Expected and Observed Save Percentages by Season, 2009-2017",
+         y = "Density of Beta", x="(Expected) Save Percentage", color="", fill="")
+
+goalie_season_beta_distribution_plt
+
+ggsave(filename="/Users/colander1/Downloads/goalie_season_beta_distribution_plt.png", plot=goalie_season_beta_distribution_plt,  width=16, height=6)
+
+
+```
+
+## Matt Murray Looks
+
+```{r}
+
+bayes_function <- function(xG, GA, shots, prior) {
+  
+  beta1000_a = (1 - (xG / shots)) * prior
+  beta1000_b = prior - beta1000_a
+  
+  # Overall
+  likelihood_a = shots - GA + 1  ## Saves + 1
+  likelihood_b = GA + 1  ## Goals + 1
+  
+  posterior1000_a = beta1000_a + (likelihood_a - 1)  ## Success + Beta A
+  posterior1000_b = beta1000_b +  (likelihood_b - 1)  ## Goals + Beta B
+
+  prior1000_mean      = calcBetaMean(beta1000_a, beta1000_b)
+  posterior1000_mean  = calcBetaMean(posterior1000_a, posterior1000_b)
+
+  return(posterior1000_mean - prior1000_mean)
+
+}
+
+goalie_waterfall <- function(goalie) {
+
+goalie_cumulative <- goalie_shot_level_prep %>%
+        filter(SA_Goalie == goalie) %>%
+        arrange(SA_Goalie, season2, as.character(Game_Id),Seconds_Elapsed) %>%
+        group_by(SA_Goalie) %>%
+        mutate(mean_xG = cumsum(xG) / seq(n()),
+               mean_xG_NR = cumsum(xG_FirstShot) / cumsum(NonRebound_Shot),
+               
+              Cum_NonRebound_Shots = cumsum(NonRebound_Shot),
+              Cum_Shots = seq(n()),
+              Cum_GA = cumsum(Goal),
+          
+              cum_xG_FirstShot = cumsum(xG_FirstShot),
+              cum_xG = cumsum(xG),
+              cum_xG_RB = cumsum(xR * rebound_goal_probability),
+              cum_xG_raw = cumsum(xG_raw),
+              xG_xR_Lift_100Shots = ((cum_xG_FirstShot + cum_xG_RB) - Cum_GA) / (Cum_NonRebound_Shots / 100)) %>%
+              #filter(Cum_Shots %% 100 == 1) %>%
+              mutate(posterior100_lift = bayes_function((cum_xG_FirstShot + cum_xG_RB), Cum_GA, Cum_Shots, 100),
+                     posterior1000_lift = bayes_function((cum_xG_FirstShot + cum_xG_RB), Cum_GA, Cum_Shots, 1000),
+                     posterior2000_lift = bayes_function((cum_xG_FirstShot + cum_xG_RB), Cum_GA, Cum_Shots, 2000),
+                     posterior3000_lift = bayes_function((cum_xG_FirstShot + cum_xG_RB), Cum_GA, Cum_Shots, 3000))
+
+cumulative_lift_plot2 <- goalie_cumulative %>%
+      group_by(SA_Goalie, season2, Game_Id) %>%
+      top_n(1, Cum_Shots) %>%
+      ungroup() %>%
+      dplyr::select(Cum_Shots, season, ends_with("_lift")) %>%
+      as.data.frame() %>%
+      melt(id.var = c("season","Cum_Shots")) %>%
+      mutate(variable = substr(variable, 10,13)) %>%
+      group_by(variable) %>%
+      mutate(next_shots = lead(Cum_Shots),
+              next_value = lead(value)) %>%
+      ggplot(aes(xmin=Cum_Shots, xmax=next_shots, ymin=value, ymax=next_value, fill=variable)) +
+      geom_hline(yintercept = 0, color = "grey50") +
+      geom_rect( color="grey75") +
+      scale_y_continuous(labels = scales::percent) +
+      theme_standard() + ggthemes::scale_color_gdocs() + ggthemes::scale_fill_gdocs() +
+      labs(title = paste0(goalie,"\nPosterior Lift Over Expected by Game"),
+         y = "Posterior Lift Over Expected", x="Cumulative Shots Against", fill="Prior Shots", color="Season")
+
+ggsave(filename=paste0("/Users/colander1/Downloads/BayesPlots/",goalie,"cumulative_lift_plot2.png"), plot=cumulative_lift_plot2,  width=13, height=6)
+
+cumulative_lift_priors_plot2 <- goalie_cumulative %>%
+      group_by(SA_Goalie, season2, Game_Id) %>%
+      top_n(1, Cum_Shots) %>% ungroup() %>%
+      dplyr::select(Cum_Shots, season, ends_with("_lift")) %>%
+      as.data.frame() %>%
+      melt(id.var = c("season","Cum_Shots")) %>%
+      mutate(variable = substr(variable, 10,13)) %>%
+      ggplot(aes(x=Cum_Shots, y=value, color = as.factor(variable))) +
+      geom_hline(yintercept = 0, color = "grey50") +geom_point(alpha=0.8) +
+      geom_smooth(method = "loess") +
+      scale_y_continuous(labels = scales::percent) +
+      theme_standard() + ggthemes::scale_color_gdocs() + ggthemes::scale_fill_gdocs() +
+      labs(title = paste0(goalie,"\nPosterior Lift Over Expected by Game"),
+         y = "Posterior Lift Over Expected", x="Cumulative Shots Against", color="Prior Shots", fill="Season")
+
+ggsave(filename=paste0("/Users/colander1/Downloads/BayesPlots/",goalie,"_lift_priors_plot2.png"), plot=cumulative_lift_priors_plot2,  width=13, height=6)
+
+}
+
+goalie_waterfall("COREY CRAWFORD")
+
+goalie_game_totals <- goalie_shot_level_prep %>%
+        filter(SA_Goalie == "MATT MURRAY") %>%
+        group_by(SA_Goalie, season) %>%
+        summarise(NonRebound_Shots = sum(NonRebound_Shot),
+               Shots = n(),
+               GA = sum(Goal),
+          
+               xG_FirstShot = sum(xG_FirstShot),
+              xG = sum(xG),
+              xG_RB =  sum(xR * rebound_goal_probability),
+              xG_raw =  sum(xG_raw),
+              xG_xR_Lift_100Shots = ((xG_FirstShot + xG_RB) - GA) / (NonRebound_Shots / 100)) %>%
+          mutate(prior1000_mean = bayes_function((xG_FirstShot + xG_RB), GA, Shots, 1000)[[1]],
+                 posterior1000_mean = bayes_function((xG_FirstShot + xG_RB), GA, Shots, 1000)[[2]],
+                 posterior1000_lift = posterior1000_mean - prior1000_mean)
+            
+
+shot_count_prior = 1000
+
+goalie_season <-  goalie_shot_level_prep %>%
+    mutate(xG_ES = ifelse(Goalie_State == "EV",xG,0),
+           GA_ES = ifelse(Goalie_State == "EV",Goal,0)) %>%
+    group_by(SA_Goalie, season, Age) %>%
+    summarise(NonRebound_Shots = sum(NonRebound_Shot),
+              Shots = n(),
+              GA = sum(Goal),
+              SvPct = (Shots - sum(Goal)) / Shots, 
+              xG_FirstShot = sum(xG_FirstShot),
+              xG = sum(xG),
+              
+              xG_ES = sum(xG_ES, na.rm = TRUE),
+              GA_ES = sum(GA_ES, na.rm = TRUE),
+             
+              xG_RB = sum(xR * rebound_goal_probability),
+              xG_raw = sum(xG_raw),
+              SvPct = (Shots - sum(Goal)) / Shots, 
+              SvPct_xR = (NonRebound_Shots - sum(GA + xG_RB)) / NonRebound_Shots, 
+              
+              ES_xG_Lift_100Shots = (sum(xG_ES) -sum(GA_ES)) / (n() / 100),
+             
+              xG_Lift_100Shots = (sum(xG) -sum(Goal)) / (n() / 100),
+              xG_xR_Lift_100Shots = (sum(xG_FirstShot + xG_RB) - sum(Goal)) / (sum(NonRebound_Shot) / 100),
+              
+              posterior_lift = bayes_function(xG, GA, Shots, shot_count_prior),
+              posterior_lift_xR = bayes_function((xG_FirstShot + xG_RB), GA, NonRebound_Shots, shot_count_prior)
+              ) %>%
+      group_by(SA_Goalie) %>%
+      mutate(Season_Cnt = uniqueN(season)) %>%
+      filter(Season_Cnt > 1)
+
+```
+Create function
+
+```{r}
+
+  ## Set model specifications
+  set.seed(123)
+  gridsearch_for_lambda =  data.frame (alpha = 0,
+                                      lambda = seq(0.1,0.9, by = 0.1))
+
+  control <- trainControl(method="repeatedcv", number=10, repeats=3)
+
+
+  #shot_count_prior=100; seasons_prior=1; past_weight=1;
+  require(MASS); require(dplyr)
+  goalie_season_team <- goalie_shot_level_prep %>%
+      group_by(SA_Goalie, SA_Team, season) %>%
+      summarise(Goalie_Shots = n()) %>%
+      left_join(goalie_shot_level_prep %>% dplyr::rename(Other_SA_Goalie = SA_Goalie), by = c("SA_Team", "season")) %>%
+      group_by(SA_Goalie, SA_Team, season, Goalie_Shots) %>%
+      summarise(Other_Shots = sum(ifelse(Other_SA_Goalie != SA_Goalie, 1, 0)),
+                Other_Raw_Performance = (sum(ifelse(Other_SA_Goalie != SA_Goalie,xG, 0)) - sum(ifelse(Other_SA_Goalie != SA_Goalie,Goal,0))) / (Other_Shots / 100)) %>%
+     mutate(Goalie_Shot_Share = Goalie_Shots / (Goalie_Shots + Other_Shots)) %>%
+      group_by(SA_Goalie, season) %>%
+      summarise(Other_Raw_Performance = weighted.mean(Other_Raw_Performance, w = Goalie_Shots),
+                Goalie_Shot_Share = weighted.mean(Goalie_Shot_Share, w = Goalie_Shots)
+                )
+  
+ 
+goalie_bayes_ranking <- function(shot_count_prior, seasons_prior, past_weight) {
+
+    goalie_season <- goalie_shot_level_prep %>%
+      mutate(xG_ES = ifelse(Goalie_State == Shooter_State,xG,0),
+             GA_ES = ifelse(Goalie_State == Shooter_State,Goal,0)) %>%
+      group_by(SA_Goalie, season, Age) %>%
+      summarise(NonRebound_Shots = sum(NonRebound_Shot),
+                Shots = n(),
+                GA = sum(Goal),
+                xG_FirstShot = sum(xG_FirstShot),
+                xG = sum(xG),
+                xG_RB = sum(xR * rebound_goal_probability),
+                xG_raw = sum(xG_raw),
+  
+                xG_ES = sum(xG_ES, na.rm = TRUE),
+                GA_ES = sum(GA_ES, na.rm = TRUE),
+                
+                xG_ES_Lift_100Shots = (xG_ES - GA_ES) / (Shots / 100),
+                
+                SvPct = (Shots - sum(Goal)) / Shots, 
+                SvPct_xR = (NonRebound_Shots - sum(GA + xG_RB)) / NonRebound_Shots, 
+               
+                xG_Lift_100Shots = (sum(xG) -sum(Goal)) / (n() / 100),
+                xG_xR_Lift_100Shots = (sum(xG_FirstShot + xG_RB) - sum(Goal)) / (sum(NonRebound_Shot) / 100),
+                
+                posterior_lift = bayes_function(xG, GA, Shots, shot_count_prior),
+                posterior_lift_xR = bayes_function((xG_FirstShot + xG_RB), GA, NonRebound_Shots, shot_count_prior)
+                ) %>%
+        group_by(SA_Goalie) %>%
+        mutate(Season_Cnt = uniqueN(season)) %>%
+        filter(Season_Cnt > 1) %>%
+        left_join(goalie_season_team, by = c("SA_Goalie","season"))
+
+   
+  test_season_loop <- function(szn) {
+    
+        goalie_target <- goalie_season %>%
+                filter(season == szn & Shots > 500) %>%
+                dplyr::select(SA_Goalie, Age, posterior_lift_xR, NonRebound_Shots, posterior_lift, xG_xR_Lift_100Shots, xG_Lift_100Shots) %>% # Age, Shots, NonRebound_Shots, posterior_lift, , xG_Lift_100Shots, xG_xR_Lift_100Shots)
+                dplyr::rename(Test_Shots = NonRebound_Shots,
+                              Test_Performance_RBA = posterior_lift_xR,
+                              Test_Performance = posterior_lift,
+                              Test_Performance_Raw = xG_Lift_100Shots,
+                              Test_Performance_Raw_RBA = xG_xR_Lift_100Shots,
+                              Test_Age = Age)
+        
+        goalie_prior_performance <- goalie_target %>%
+                dplyr::select(SA_Goalie) %>% ungroup() %>% distinct() %>%
+                inner_join(goalie_season, by = "SA_Goalie") %>%
+                mutate(Season_Prior = as.numeric(substr(szn,5,8)) - as.numeric(substr(season,5,8))) %>%
+                filter(Season_Prior <= seasons_prior & Season_Prior > 0) %>%
+                group_by(SA_Goalie) %>%
+                mutate(init_weight = 1, #Age_Weight ** Season_Prior,
+                       marcel_adjustor = (1 - (Season_Prior / (seasons_prior + past_weight) )),
+                       weight = init_weight * marcel_adjustor,
+                       weight = weight / sum(weight),
+                       weighted_SA = weight * NonRebound_Shots,
+                       weighted_RB_Rate = ((Shots - NonRebound_Shots) / Shots) * weight,
+                       weighted_posterior_lift = weight * posterior_lift,
+                       weighted_posterior_lift_xR = weight * posterior_lift_xR,
+                       weighted_xG_ES_Lift_100Shots = weight * xG_ES_Lift_100Shots,
+                       weighted_xG_xR_Lift_100Shots  = weight * xG_xR_Lift_100Shots,
+                       weighted_xG_Lift_100Shots  = weight * xG_Lift_100Shots,
+                       weighted_Other_Performance = weight * Other_Raw_Performance,
+                       weighted_Shot_Share = weight * Goalie_Shot_Share,
+                       last_season_posterior_lift_xR = ifelse(Season_Prior == 1, posterior_lift_xR, 0),
+                       last_season_NonRebound_Shots = ifelse(Season_Prior == 1, NonRebound_Shots, 0)
+                       ) %>%
+            group_by(SA_Goalie) %>%
+            summarise(weighted_posterior_lift = sum(weighted_posterior_lift),
+                      weighted_posterior_lift_xR = sum(weighted_posterior_lift_xR),
+                      weighted_xG_Lift_100Shots = weighted.mean(xG_Lift_100Shots, weight * Shots),
+                      weighted_xG_xR_Lift_100Shots = weighted.mean(xG_xR_Lift_100Shots, weight * NonRebound_Shots),
+                      weighted_xG_ES_Lift_100Shots = weighted.mean(weighted_xG_ES_Lift_100Shots, weight * NonRebound_Shots),
+                      weighted_SvPct = weighted.mean(SvPct, weight * Shots),
+                      weighted_Shots = sum(weighted_SA),
+                      weighted_RB_Rate = sum(weighted_RB_Rate),
+                      weighted_Other_Performance = sum(weighted_Other_Performance),
+                      weighted_Shot_Share = sum(weighted_Shot_Share),
+                      last_season_posterior_lift_xR = max(last_season_posterior_lift_xR, na.rm = T),
+                      last_season_NonRebound_Shots = max(last_season_NonRebound_Shots, na.rm = T)
+                      ) %>%
+            right_join(goalie_target, by = "SA_Goalie") %>%
+            mutate(Test_Season = szn,
+                   Test_Age2 = Test_Age ** 2,
+                   Test_Age3 = Test_Age ** 3) %>%
+            filter(last_season_NonRebound_Shots > 0) #%>%
+            #na.omit()
+        
+  }
+  
+  test_seasons <- as.character(seq(20112012 + (seasons_prior * 10001), 20172018, by = 10001))
+  
+  goalie_prior_performance <- plyr::rbind.fill(lapply(FUN=test_season_loop,test_seasons))
+  
+  library(boot)
+  
+  regressed_corr <- corr(as.matrix(goalie_prior_performance[c("Test_Performance", "weighted_posterior_lift")]), w = (goalie_prior_performance$Test_Shots))
+  
+  regressed_corr_RBA <- corr(as.matrix(goalie_prior_performance[c("Test_Performance_RBA", "weighted_posterior_lift_xR")]), w = (goalie_prior_performance$Test_Shots))
+  
+  raw_corr_RBA <- corr(as.matrix(goalie_prior_performance[c("Test_Performance_Raw_RBA", "weighted_xG_xR_Lift_100Shots")]), w = (goalie_prior_performance$Test_Shots))
+  
+  raw_corr <- corr(as.matrix(goalie_prior_performance[c("Test_Performance_Raw", "weighted_xG_Lift_100Shots")]), w = (goalie_prior_performance$Test_Shots))
+  
+
+  # Create model with default paramters
+  #lm_model_RBA <- caret::train(Test_Performance_RBA ~ Test_Shots + weighted_posterior_lift + weighted_Shots + weighted_xG_xR_Lift_100Shots + weighted_xG_ES_Lift_100Shots + weighted_Other_Performance + weighted_Shot_Share + Test_Age + Test_Age2 + Test_Age3, data=goalie_prior_performance, method="glmnet", metric="RMSE", trControl=control)
+  
+  lm_model_RBA <- lm(Test_Performance_RBA ~ Test_Shots + weighted_posterior_lift + weighted_Shots + weighted_xG_ES_Lift_100Shots + weighted_Other_Performance + weighted_Shot_Share + Test_Age + Test_Age2, data=goalie_prior_performance)
+
+  lm_model <- lm(Test_Performance ~ Test_Shots + weighted_posterior_lift + weighted_Shots + weighted_xG_ES_Lift_100Shots + weighted_Other_Performance + weighted_Shot_Share + Test_Age + Test_Age2, data=goalie_prior_performance)
+  
+  lm_model_raw <- lm(Test_Performance_Raw ~ Test_Shots + weighted_posterior_lift + weighted_Shots + weighted_xG_ES_Lift_100Shots + weighted_Other_Performance + weighted_Shot_Share + Test_Age + Test_Age2, data=goalie_prior_performance)
+  
+  saveRDS(lm_model_RBA, paste0("/Users/colander1/Documents/CWA/GoalieProjections2018/Models/lm_model_RBA_shots",shot_count_prior,"_szns",seasons_prior,"_wt",past_weight,".rda"))
+
+  saveRDS(lm_model, paste0("/Users/colander1/Documents/CWA/GoalieProjections2018/Models/lm_model_shots",shot_count_prior,"_szns",seasons_prior,"_wt",past_weight,".rda"))
+
+  saveRDS(lm_model_raw, paste0("/Users/colander1/Documents/CWA/GoalieProjections2018/Models/lm_model_raw_shots",shot_count_prior,"_szns",seasons_prior,"_wt",past_weight,".rda"))
+  
+  output <- data.frame(Shot_Count_Prior = shot_count_prior, 
+                       Prior_Seasons = seasons_prior,
+                       Past_Weight = past_weight,
+                       Regressed_Corr = regressed_corr,
+                       Regressed_Corr_RBA = regressed_corr_RBA,
+                       Raw_Corr_RBA = raw_corr_RBA,
+                       Raw_Corr = raw_corr,
+                       Regressed_LM_Model_RBA = cor(goalie_prior_performance$Test_Performance_RBA,predict(lm_model_RBA,goalie_prior_performance)),
+                       Regressed_LM_Model = cor(goalie_prior_performance$Test_Performance, predict(lm_model,goalie_prior_performance)),
+                       Raw_LM_Model = cor(goalie_prior_performance$Test_Performance_Raw, predict(lm_model_raw,goalie_prior_performance)))
+  
+  return(output)
+}
+
+
+#goalie_bayes_ranking(3700, 2, 8)
+goalie_bayes_ranking(4000,2,1)
+goalie_bayes_ranking(100, 2, 2) #0.3778204
+
+```
+
+```{r}
+
+grid <- expand.grid(shot_count_prior = seq(100, 4000, 300), seasons_prior = c(1,2,3,4,5), past_weight = c(1,2,4,6,8,10)) %>%
+            filter((seasons_prior == past_weight) | seasons_prior > 1)
+
+LM_Model_350grid_output <- plyr::mdply(grid,goalie_bayes_ranking)
+
+write.csv(LM_Model_350grid_output, "~/Documents/CWA/Hockey Data/LM_Model_350grid_output.csv", row.names = FALSE)
+save(LM_Model_350grid_output, file="~/Documents/CWA/Hockey Data/LM_Model_350grid_output.RData")
+
+```
+
+## Summarize Correlation Results
+
+```{r}
+
+correlations_sum <- LM_Model_350grid_output %>%
+        dplyr::select(contains("Model")
+                      ) %>%
+        melt() %>%
+        group_by(variable) %>%
+        top_n(50) %>%
+        summarise(Mean = mean(value),
+                  Median = median(value),
+                  Max = max(value)
+                  )
+ 
+
+correlations_summary_plot <- correlations_sum %>%
+        as.data.frame() %>%
+        dplyr::rename(Metric = variable) %>%
+        data.table::melt(id.var = "Metric") %>%
+        group_by(variable) %>%
+        mutate(var_rank = percent_rank(value)) %>%
+        ggplot(aes(x=reorder(variable,-value), y=reorder(Metric,value), label=paste0(round(value,3)))) +
+        geom_tile(aes(fill = var_rank), colour = "grey75") + 
+        geom_text(color="grey80", size = 5) +
+        theme_standard() +
+          scale_fill_gradient2(low="#DC3912",high="#109618", mid="#990099", labels = percent) +
+        labs(title = "Summary of Correlations\nTest Seasons and Weighted Marcels (Adjusted for Age)", x="",y="",fill="Metric Percentile") 
+
+correlations_summary_plot
+ggsave(filename=paste0("/Users/colander1/Downloads/BayesPlots2018/correlations_summary_plot.png"), plot=correlations_summary_plot,  width=13, height=6)
+
+```
+
+## Team Projected Shots
+
+```{r}
+
+## Last Season
+team_season_shots <- goalie_shot_level_prep %>%
+    filter(season == "20172018") %>%
+    filter(Season_Type == "RS") %>%
+    group_by(SA_Goalie, SA_Team, season) %>%
+    summarise(Goalie_Shots = n()) %>%
+    group_by(SA_Team, season) %>%
+    mutate(Team_Shots = sum(Goalie_Shots)) %>%
+    group_by(SA_Goalie, season) %>%
+    mutate(Goalie_Shots = sum(Goalie_Shots),
+           RS_Shot_Share = Goalie_Shots / Team_Shots)
+
+write.csv(team_season_shots,"/Users/colander1/Documents/CWA/GoalieProjections2018/team_season_shots.csv")
+    
+team_goalie_xwalk_2018 <- read.csv("/Users/colander1/Documents/CWA/GoalieProjections2018/team_goalie_xwalk_2018.csv") %>%
+    distinct() %>%
+    filter(SA_Team != "") %>%
+    inner_join(goalie_season_team %>% filter(season %in% c("20172018","20162017","20152016")), by = "SA_Goalie") %>%
+    mutate(season_weight = 1 / (4 + (2019 - as.numeric(substr(season, 5,8))))) %>%
+    group_by(SA_Team, SA_Goalie) %>%
+    summarise(Goalie_Shot_Share = weighted.mean(Goalie_Shot_Share, w = season_weight)) %>%
+    ## Manual Edits
+    mutate(Goalie_Shot_Share = ifelse(SA_Goalie == "CAM WARD", Goalie_Shot_Share - 0.33,
+                               ifelse(SA_Goalie == "LINUS ULLMARK", Goalie_Shot_Share + 0.15,
+                               ifelse(SA_Goalie %in% c("RYAN MILLER","HENRIK LUNDQVIST","ANTTI NIEMI"), Goalie_Shot_Share - 0.15,
+                               ifelse(SA_Goalie %in% c("PEKKA RINNE"), Goalie_Shot_Share - 0.05,
+                                      Goalie_Shot_Share))))) %>%
+    group_by(SA_Team) %>%
+    mutate(Depth = rank(-Goalie_Shot_Share)) %>%
+    filter(Depth < 3) %>%
+    mutate(Projected_Shot_Share = Goalie_Shot_Share / sum(Goalie_Shot_Share)) %>%
+    group_by(SA_Goalie) %>%
+    mutate(Projected_Shot_Share = max(min(Projected_Shot_Share, 0.8),0.2)) %>%
+    left_join(team_season_shots %>% ungroup() %>% dplyr::select(SA_Team, Team_Shots) %>% distinct(), by = "SA_Team") %>%
+    mutate(Test_Shots = Projected_Shot_Share * Team_Shots)
+
+
+projected_shots_plot <- team_goalie_xwalk_2018 %>% ungroup() %>%
+    ## Manual Edits
+    mutate(SA_Goalie = ifelse(SA_Goalie == "THATCHER DEMKO", "ILYA SAMSONOV", as.character(SA_Goalie)),
+          Depth = factor(Depth, levels = c("2","1"))
+           ) %>%
+    group_by(SA_Team) %>%
+    mutate(Starter_Shot_Share = max(Test_Shots)) %>%
+    ggplot(aes(x=reorder(SA_Team,Starter_Shot_Share), y=Test_Shots, fill=Depth, group=Depth, label=SA_Goalie, alpha = Team_Shots)) +
+    geom_hline(yintercept = 0.5, color = "grey50") +
+    geom_bar(stat = "identity") +
+     geom_label(size = 3, fill = "grey70", position = position_stack(vjust = 0.5), stat = "identity") +
+    theme_standard() +
+    coord_flip() +
+    #scale_y_continuous(labels = scales::percent) +
+    scale_alpha_continuous(range = c(0.5, 1)) +
+    ggthemes::scale_fill_gdocs() +
+    labs(title = paste0("Projected Goalie Workload, Regular Season 2018-19\n@crowdscoutsprts (https://github.com/C92Anderson)"),
+         y = "Projected Shots Against", x="", fill="", alpha = "Team Shots\nAgainst\n2017-18") +
+    guides(fill = FALSE)
+
+ggsave(filename=paste0("/Users/colander1/Downloads/BayesPlots2018/projected_shots_plot.png"), plot=projected_shots_plot,  width=10, height=18)
+
+```
+
+## Various Projections With Tested Parameters
+
+```{r}
+
+goalie_season_team <- goalie_shot_level_prep %>%
+      group_by(SA_Goalie, SA_Team, season, dob) %>%
+      summarise(Goalie_Shots = n()) %>%
+      left_join(goalie_shot_level_prep %>% dplyr::rename(Other_SA_Goalie = SA_Goalie), by = c("SA_Team", "season")) %>%
+      group_by(SA_Goalie, SA_Team, season, Goalie_Shots) %>%
+      summarise(Other_Shots = sum(ifelse(Other_SA_Goalie != SA_Goalie, 1, 0)),
+                Other_Raw_Performance = (sum(ifelse(Other_SA_Goalie != SA_Goalie,xG, 0)) - sum(ifelse(Other_SA_Goalie != SA_Goalie,Goal,0))) / (Other_Shots / 100)) %>%
+     mutate(Goalie_Shot_Share = Goalie_Shots / (Goalie_Shots + Other_Shots)) %>%
+      group_by(SA_Goalie, season) %>%
+      summarise(Other_Raw_Performance = weighted.mean(Other_Raw_Performance, w = Goalie_Shots),
+                Goalie_Shot_Share = weighted.mean(Goalie_Shot_Share, w = Goalie_Shots)
+                )
+
+
+season_projection <- function(shot_count_prior, seasons_prior, past_weight, season_project = "20182019") {
+
+
+  goalie_projection <- goalie_shot_level_prep %>%
+      filter(as.numeric(season_project)  == (as.numeric(as.character(season)) + 10001)) %>%
+      dplyr::select(SA_Goalie) %>% ungroup() %>% distinct() %>%
+      left_join(goalie_shot_level_prep, by = "SA_Goalie") %>%
+      mutate(Test_Age = as.numeric(round((as.Date(paste0("10/1/",as.numeric(substr(season_project,1,4))), format = "%m/%d/%Y") - as.Date(dob)) / 365.25,1)), 
+             xG_ES = ifelse(Goalie_State == Shooter_State,xG,0),
+             GA_ES = ifelse(Goalie_State == Shooter_State,Goal,0),
+             Season_Prior = as.numeric(substr(season_project,5,8)) - as.numeric(substr(season,5,8))) %>%
+      filter(Season_Prior <= seasons_prior & Season_Prior > 0) %>%
+      group_by(SA_Goalie, season, Test_Age, Season_Prior) %>%
+      summarise(NonRebound_Shots = sum(NonRebound_Shot),
+                Shots = n(),
+                GA = sum(Goal),
+                xG_FirstShot = sum(xG_FirstShot),
+                xG = sum(xG),
+                xG_RB = sum(xR * rebound_goal_probability),
+                xG_raw = sum(xG_raw),
+  
+                xG_ES = sum(xG_ES, na.rm = TRUE),
+                GA_ES = sum(GA_ES, na.rm = TRUE),
+                
+                xG_ES_Lift_100Shots = (xG_ES - GA_ES) / (Shots / 100),
+                
+                SvPct = (Shots - sum(Goal)) / Shots, 
+                SvPct_xR = (NonRebound_Shots - sum(GA + xG_RB)) / NonRebound_Shots, 
+               
+                xG_Lift_100Shots = (sum(xG) -sum(Goal)) / (n() / 100),
+                xG_xR_Lift_100Shots = (sum(xG_FirstShot + xG_RB) - sum(Goal)) / (sum(NonRebound_Shot) / 100),
+                
+                posterior_lift = bayes_function(xG, GA, Shots, shot_count_prior),
+                posterior_lift_xR = bayes_function((xG_FirstShot + xG_RB), GA, NonRebound_Shots, shot_count_prior)
+                ) %>%
+      left_join(goalie_season_team, by = c("SA_Goalie","season")) %>%
+      group_by(SA_Goalie) %>%
+      mutate(Test_Season = season_project,
+             init_weight = 1, #Age_Weight ** Season_Prior,
+             marcel_adjustor = (1 - (Season_Prior / (seasons_prior + past_weight) )),
+             weight = init_weight * marcel_adjustor,
+             weight = weight / sum(weight),
+             weighted_SA = weight * NonRebound_Shots,
+             weighted_RB_Rate = ((Shots - NonRebound_Shots) / Shots) * weight,
+             weighted_posterior_lift = weight * posterior_lift,
+             weighted_posterior_lift_xR = weight * posterior_lift_xR,
+             weighted_xG_ES_Lift_100Shots = weight * xG_ES_Lift_100Shots,
+             weighted_xG_xR_Lift_100Shots  = weight * xG_xR_Lift_100Shots,
+             weighted_xG_Lift_100Shots  = weight * xG_Lift_100Shots,
+             weighted_Other_Performance = weight * Other_Raw_Performance,
+             weighted_Shot_Share = weight * Goalie_Shot_Share,
+             last_season_posterior_lift_xR = ifelse(Season_Prior == 1, posterior_lift_xR, 0),
+             last_season_NonRebound_Shots = ifelse(Season_Prior == 1, NonRebound_Shots, 0)
+             ) %>%
+  group_by(SA_Goalie, Test_Age) %>%
+  summarise(weighted_posterior_lift = sum(weighted_posterior_lift),
+            weighted_posterior_lift_xR = sum(weighted_posterior_lift_xR),
+            weighted_xG_Lift_100Shots = weighted.mean(xG_Lift_100Shots, weight * Shots),
+            weighted_xG_xR_Lift_100Shots = weighted.mean(xG_xR_Lift_100Shots, weight * NonRebound_Shots),
+            weighted_xG_ES_Lift_100Shots = weighted.mean(weighted_xG_ES_Lift_100Shots, weight * NonRebound_Shots),
+            weighted_SvPct = weighted.mean(SvPct, weight * Shots),
+            weighted_Shots = sum(weighted_SA),
+            weighted_RB_Rate = sum(weighted_RB_Rate),
+            weighted_Other_Performance = sum(weighted_Other_Performance),
+            weighted_Shot_Share = sum(weighted_Shot_Share),
+            last_season_posterior_lift_xR = max(last_season_posterior_lift_xR, na.rm = T),
+            last_season_NonRebound_Shots = max(last_season_NonRebound_Shots, na.rm = T)
+            ) %>%
+    left_join(team_goalie_xwalk_2018 %>% ungroup() %>% dplyr::select(SA_Goalie, Test_Shots, SA_Team), by = "SA_Goalie") %>%
+    na.omit() %>%
+    mutate( Test_Age2 = Test_Age ** 2,
+            Test_Age3 = Test_Age ** 3)
+
+  lm_model_raw <- readRDS(paste0("/Users/colander1/Documents/CWA/GoalieProjections2018/Models/lm_model_raw_shots",shot_count_prior,"_szns",seasons_prior,"_wt",past_weight,".rda"))
+
+  lm_model_RBA <- readRDS(paste0("/Users/colander1/Documents/CWA/GoalieProjections2018/Models/lm_model_RBA_shots",shot_count_prior,"_szns",seasons_prior,"_wt",past_weight,".rda"))
+
+    lm_model <- readRDS(paste0("/Users/colander1/Documents/CWA/GoalieProjections2018/Models/lm_model_shots",shot_count_prior,"_szns",seasons_prior,"_wt",past_weight,".rda"))
+
+
+  regressed_RBA_predict <- as.data.frame(predict(lm_model_RBA, goalie_projection, interval = "confidence")) %>%
+        dplyr::rename(regressed_RBA_predict = fit,
+               regressed_RBA_predict_lo = lwr,
+               regressed_RBA_predict_hi = upr)
+
+  raw_predict <- as.data.frame(predict(lm_model_raw, goalie_projection, interval = "confidence")) %>%
+        dplyr::rename(raw_predict = fit,
+               raw_predict_lo = lwr,
+               raw_predict_hi = upr)
+
+  regressed_predict <- as.data.frame(predict(lm_model, goalie_projection, interval = "confidence")) %>%
+        dplyr::rename(regressed_predict = fit,
+               regressed_predict_lo = lwr,
+               regressed_predict_hi = upr)
+  
+
+  goalie_projection2 <- goalie_projection %>%
+     #dplyr::select(-starts_with("Test"), -starts_with("weight"), -starts_with("last")) %>%
+     cbind.data.frame(raw_predict, regressed_RBA_predict, regressed_predict, shot_count_prior, seasons_prior, past_weight) 
+
+  return(goalie_projection2)
+
+}
+
+out <- season_projection(4000,1,1)
+
+```
+
+
+```{r}
+
+grid <- expand.grid(shot_count_prior = seq(100, 4000, 300), seasons_prior = c(1,2,3,4,5), past_weight = c(1,2,4,6,8,10)) %>%
+            filter((seasons_prior == past_weight) | seasons_prior > 1)
+
+projections_all_2018 <- plyr::mdply(grid,season_projection)
+
+save(projections_all_2018, file="~/Documents/CWA/Hockey Data/projections_all_2018.RData")
+
+```
+
+
+
+```{r}
+
+load("~/Documents/CWA/Hockey Data/LM_Model_350grid_output.RData")
+load("~/Documents/CWA/Hockey Data/projections_all_2018.RData")
+
+top_models <- LM_Model_350grid_output %>% filter(Regressed_LM_Model_RBA > 0.41)
+
+goalie_season_predictions <- projections_all_2018 %>%
+    inner_join(top_models, by = c("shot_count_prior","seasons_prior","past_weight")) %>%
+    group_by(SA_Goalie, SA_Team) %>%
+    summarise(regressed_RBA_predict_lo = weighted.mean(regressed_RBA_predict_lo, w = Regressed_LM_Model_RBA),
+              regressed_RBA_predict_hi = weighted.mean(regressed_RBA_predict_hi, w = Regressed_LM_Model_RBA),
+              regressed_RBA_predict = weighted.mean(regressed_RBA_predict, w = Regressed_LM_Model_RBA)
+              )
+    
+    filter(season == "20172018") %>%
+    group_by(SA_Goalie) %>%
+    summarise(Shots = n()) %>%
+    filter(Shots > 750 | SA_Goalie %in% c("EDDIE LACK","AARON DELL")) %>%
+    dplyr::select(SA_Goalie) %>%
+    left_join(projections_2018, by = "SA_Goalie") %>%
+  left_join(correlations_12600grid, by = c("shot_count_prior", "young_age", "old_inflator","seasons_prior")) %>%
+  filter( Bayes_xR_Corr > 0) %>%
+  group_by(SA_Goalie, past_weight) %>%
+  summarise(posterior_xR_season = weighted.mean(weighted_posterior_lift_xR, w = Bayes_xR_Corr),
+            posterior_season = weighted.mean(weighted_posterior_lift, w = Bayes_Corr),
+            xG_xR_Lift_season = weighted.mean(weighted_xG_xR_Lift_100Shots, w = xGxR_Corr),
+            xG_Lift_season = weighted.mean(weighted_xG_Lift_100Shots, w = xG_Corr),
+            SvPct_season = weighted.mean(weighted_SvPct, w = SvPct_Corr),
+            Bayes_xR_Corr = mean(Bayes_xR_Corr),
+            Bayes_Corr = mean(Bayes_Corr),
+            xGxR_Corr = mean(xGxR_Corr),
+            xG_Corr = mean(xG_Corr),
+            SvPct_Corr = mean(SvPct_Corr)) %>%
+  group_by(SA_Goalie) %>%
+  mutate(posterior_xR_overall = weighted.mean(posterior_xR_season, w = Bayes_xR_Corr),
+         posterior_overall = weighted.mean(posterior_season, w = Bayes_Corr),
+         xG_xR_Lift_overall = weighted.mean(xG_xR_Lift_season, w = xGxR_Corr),
+         xG_Lift_overall = weighted.mean(xG_Lift_season, w = xG_Corr),
+         SvPct_overall = weighted.mean(SvPct_season, w = SvPct_Corr)) 
+
+plot <- goalie_season_predictions %>%
+  mutate(MM = ifelse(SA_Goalie == "MATT MURRAY",1,0)) %>%
+  ggplot(aes(x=reorder(SA_Goalie,-posterior_xR_overall), y=posterior_xR_overall, color = as.factor(MM), alpha=Bayes_Corr)) +
+  geom_point(aes(x=reorder(SA_Goalie,-posterior_xR_overall), y=posterior_xR_overall, color = as.factor(MM)), size=4, alpha=0.1) +
+  geom_point() +
+  theme_standard() + ggthemes::scale_color_gdocs() +
+  #coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  geom_hline(yintercept = 0, color="grey50") +
+  scale_alpha_continuous(range = c(0.1,0.3)) +
+  labs(color="Weighted Seasons of Data", alpha="Correlation with\nFollowing Season",
+       title="Bayesian Save % Lift Over Expected, 2016-17 (min 750 shots)\nAdjusted by Shot Quality and Regressed by Age\n@CrowdScoutSprts (github.com/C92Anderson/xG-Model)",x="",y="Bayesian Save % Lift Over Expected") 
+
+
+ggsave(filename="/Users/colander1/Downloads/goalie_bayes_plot2.png", plot=plot,  width=13, height=6)
+
+```
+Age Summary
+```{r}
+
+Age <- data.frame(Age = c(18:40), a = 1)
+combos_plot <- correlations_1500grid %>%
+    group_by(Start_Age, Age_Inflation) %>%
+    summarise(Bayes_xR_Corr = mean(Bayes_xR_Corr)) %>%
+    mutate(a = 1) %>%
+    full_join(Age, by = "a") %>%
+    mutate(Offseason_Regression = as.numeric(1 - ((Age - Start_Age) * Age_Inflation) / 100)) %>%
+  ggplot(aes(x=Age, y = 1 -Offseason_Regression, group = interaction(Age_Inflation, Start_Age),  color = Bayes_xR_Corr, alpha=Bayes_xR_Corr, size=Bayes_xR_Corr)) +
+    geom_line() +
+    scale_color_gradient2(low="#DC3912",high="#109618", mid="grey50", midpoint = mean(correlations_1500grid$Bayes_xR_Corr)) +
+   scale_y_continuous(labels = scales::percent) +
+  theme_standard() + #ggthemes::scale_color_gdocs() +
+  labs(color="Correlation with\nFollowing Season", alpha="Correlation",size = "Correlation",
+       title="Predictive Power by Age Regression Parameters",x="Current Age",y="Percent to Regress Past Offseasons Based on Age")
+
+
+ggsave(filename="/Users/colander1/Downloads/age_regression_plot.png", plot=combos_plot,  width=13, height=6)
+
+```
+Prior Summary
+```{r}
+
+prior_table <- correlations_2100grid %>%
+    group_by(Shot_Count_Prior,seasons_prior) %>%
+    summarise(Bayes_xR_Corr = mean(Bayes_xR_Corr)) %>%
+    ungroup() %>%
+    mutate(var_rank = percent_rank(Bayes_xR_Corr)) %>%
+    ggplot(aes(x=seasons_prior, y = Shot_Count_Prior,  color = Bayes_xR_Corr, label=round(Bayes_xR_Corr,3))) +
+    geom_tile(aes(fill = var_rank), colour = "grey75") + 
+    geom_text(color="grey80", size = 5) +
+    theme_standard() +
+    ylim(0,NA) +
+      scale_fill_gradient2(low="#DC3912",high="#109618", mid="#990099", labels = percent) +
+    labs(title = "Predictive Power by Prior Strength and Lookback Seasons", y="Prior Strength (Shots)",x="Lookback Seasons",fill="Metric Percentile") 
+
+prior_table
+
+ggsave(filename="/Users/colander1/Downloads/BayesPlots/prior_table.png", plot=prior_table,  width=13, height=6)
+
+prior_plot <- correlations_2100grid %>%
+    group_by(Shot_Count_Prior,seasons_prior) %>%
+    summarise(Bayes_xR_Corr = mean(Bayes_xR_Corr)) %>%
+    ungroup() %>%
+    mutate(var_rank = percent_rank(Bayes_xR_Corr)) %>%
+    ggplot(aes(x=Shot_Count_Prior, y = Bayes_xR_Corr,  group = as.factor(seasons_prior), color = as.factor(seasons_prior), linetype = as.factor(seasons_prior))) +
+    geom_line( size = 2) + 
+  ylim(0,NA) +
+     theme_standard() + ggthemes::scale_color_gdocs() +
+    labs(title = "Predictive Power by Prior Strength and Lookback Seasons", x="Prior Strength (Shots)",y="Predictive Strength\nMean Correlation",color="Lookback Seasons",linetype="Lookback Seasons") 
+
+prior_plot
+
+ggsave(filename="/Users/colander1/Downloads/BayesPlots/prior_plot.png", plot=prior_plot,  width=13, height=6)
+```
+
+```{r}
+
+
+best_projection <- goalie_shot_level_prep %>%
+    filter(season == "20162017") %>%
+    group_by(SA_Goalie) %>%
+    summarise(Shots = n()) %>%
+    filter(Shots > 750) %>%
+    dplyr::select(SA_Goalie) %>%
+  left_join(projections_2018, by = "SA_Goalie") %>%
+  left_join(correlations, by = c("shot_count_prior", "young_age", "old_inflator","seasons_prior")) %>%
+  filter(Bayes_Corr == max(Bayes_Corr)) %>%
+  ggplot(aes(x=reorder(SA_Goalie,weighted_posterior1000_lift), y=weighted_posterior1000_lift)) +
+  geom_point() +
+  theme_standard() + ggthemes::scale_color_gdocs() +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  geom_hline(yintercept = 0, color="grey50") +
+  scale_alpha_continuous(range = c(0.1,0.3)) +
+  labs(color="Weighted Seasons of Data", alpha="Correlation with\nFollowing Season",
+       title="Bayesian Save % Lift Over Expected, 2016-17 (min 750 shots)\nAdjusted by Shot Quality and Regressed by Age\n@CrowdScoutSprts (github.com/C92Anderson/xG-Model)",x="",y="Bayesian Save % Lift Over Expected")
+
+best_projection
+
+ggsave(filename="/Users/colander1/Downloads/best_projection.png", plot=best_projection,  width=12, height=12)
+
+```
+```{r}
+
+best_corr <- correlations %>%
+  filter(Bayes_Corr == max(Bayes_Corr)) %>%
+  select(shot_count_prior, young_age, old_inflator, seasons_prior)
+
+
+goalie_return_matrix <- function(shot_count_prior, young_age, old_inflator, seasons_prior) {
+  
+goalie_season <-  goalie_shot_level_prep %>%
+    group_by(SA_Goalie, season, Age) %>%
+    summarise(xG_Lift_100Shots = (sum(xG) -sum(Goal)) / (n() / 100),
+              NonRebound_Shots = sum(NonRebound_Shot),
+              Shots = n(),
+              SvPct = (Shots - sum(Goal)) / Shots, 
+              xG_FirstShot = sum(xG_FirstShot),
+              xG = sum(xG),
+              xG_RB = sum(xR * rebound_goal_probability),
+              xG_raw = sum(xG),
+              xG_xR_Lift_100Shots = (sum(xG_FirstShot + xG_RB) -sum(Goal)) / (sum(NonRebound_Shot) / 100),
+              #beta1000_a = (1 - ( (xG_FirstShot + xG_RB) / NonRebound_Shots)) * shot_count_prior,
+              beta1000_a = (1 - (xG / Shots)) * shot_count_prior,
+              beta1000_b = shot_count_prior - beta1000_a,
+              
+              # Overall
+              likelihood_a = sum(Shots) - sum(Goal) + 1,  ## Saves + 1
+              likelihood_b = sum(Goal) + 1,  ## Goals + 1
+              
+              posterior1000_a = beta1000_a + (likelihood_a - 1),  ## Success + Beta A
+              posterior1000_b = beta1000_b +  (likelihood_b - 1) , ## Goals + Beta B
+
+                prior1000_mean      = calcBetaMean(beta1000_a, beta1000_b),
+                posterior1000_mean  = calcBetaMean(posterior1000_a, posterior1000_b),
+       
+                posterior1000_lift = posterior1000_mean - prior1000_mean) %>%
+      group_by(SA_Goalie) %>%
+      mutate(Season_Cnt = uniqueN(season),
+             Age_Weight = as.numeric(1 - ((Age - young_age) * old_inflator) / 100)) %>%
+      filter(Season_Cnt > 1)
+
+
+test_season_loop <- function(szn) {
+  
+      goalie_target <- goalie_season %>%
+              filter(season == szn & Shots > 200) %>%
+              select(SA_Goalie, Shots, NonRebound_Shots, posterior1000_lift, xG_Lift_100Shots, xG_xR_Lift_100Shots, SvPct)
+      
+      goalie_prior_performance <- goalie_target %>%
+              select(SA_Goalie) %>% ungroup() %>% distinct() %>%
+              inner_join(goalie_season, by = "SA_Goalie") %>%
+              mutate(Season_Prior = as.numeric(substr(szn,5,8)) - as.numeric(substr(season,5,8))) %>%
+              filter(Season_Prior <= seasons_prior & Season_Prior > 0) %>%
+              mutate(weight = Age_Weight ** Season_Prior,
+                 weighted_posterior1000_lift = weight * posterior1000_lift,
+                 weighted_xG_xR_Lift_100Shots  = weight * xG_xR_Lift_100Shots,
+                 weighted_xG_Lift_100Shots  = weight * xG_Lift_100Shots) %>%
+          group_by(SA_Goalie) %>%
+          summarise(weighted_posterior1000_lift = sum(weighted_posterior1000_lift),
+                    weighted_mean_posterior1000_lift = weighted.mean(posterior1000_lift, weight),
+                    weighted_xG_Lift_100Shots = weighted.mean(xG_Lift_100Shots, weight * Shots),
+                    weighted_xG_xR_Lift_100Shots = weighted.mean(xG_xR_Lift_100Shots, weight * NonRebound_Shots),
+                    weighted_SvPct = weighted.mean(SvPct, weight * Shots),
+                    weighted_Shots = weighted.mean(Shots, weight)) %>%
+          left_join(goalie_target, by = "SA_Goalie") %>%
+          mutate(Test_Season = szn) %>%
+          na.omit()
+      
+}
+
+test_seasons <- c("20112012","20122013","20132014","20142015","20152016","20162017")
+  
+goalie_prior_performance <- plyr::rbind.fill(lapply(FUN=test_season_loop,test_seasons))
+
+
+return(goalie_prior_performance)
+}
+
+return_matrix <- plyr::mdply(best_corr,goalie_return_matrix)
+
+
+
+best_model <- return_matrix %>%
+  ggplot(aes(x=weighted_posterior1000_lift, y=posterior1000_lift, size=Shots, color=as.factor(Test_Season))) +
+  geom_point() +
+  theme_standard() + ggthemes::scale_color_gdocs() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(labels = scales::percent) +
+  stat_smooth(method="lm", se=TRUE, fill=NA,# color=as.factor(season), 
+              formula = y ~ x) +
+  geom_abline(intercept = 0, slope = 1, color="grey50") +
+  labs(color="Test Season", size="Test Season\nShots",
+       title="Correlation Between Past Weighted Seasons and Actual Performance - Best Model\n@CrowdScoutSprts (github.com/C92Anderson/xG-Model)",x="Weighted Past Season Bayesian Save % Lift Over Expected",y="Test Season Bayesian Save % Lift Over Expected")
+
+
+best_model
+
+ggsave(filename="/Users/colander1/Downloads/best_model.png", plot=best_model,  width=12, height=12)
+
+```
+```{r}
+#return_matrix %>% group_by(Test_Season) %>% summarize(corr = cor(posterior1000_lift,weighted_posterior1000_lift))
+
+#load("~/Documents/CWA/Hockey Data/pbp.all.raw.RData")
+
+goalie_projections_2018 <- goalie_shot_level_prep %>%
+    filter(season == "20162017") %>%
+    group_by(SA_Goalie) %>%
+    summarise(Shots_1617 = n(),
+              GP_1617 = data.table::uniqueN(Game_Id)) %>%
+    filter(Shots_1617 > 100 | SA_Goalie %in% c("ALEX STALOCK","ANTON FORSBERG","MALCOLM SUBBAN")) %>%
+    dplyr::select(SA_Goalie, Shots_1617, GP_1617) %>%
+    left_join(projections_2018, by = "SA_Goalie") %>%
+  left_join(correlations_12600grid, by = c("shot_count_prior", "young_age", "old_inflator","seasons_prior")) %>%
+  filter(Bayes_Corr > 0) %>%
+  group_by(SA_Goalie, seasons_prior) %>%
+  summarise(posterior_xR_season = weighted.mean(weighted_posterior_lift, w = Bayes_xR_Corr),
+            posterior_season = weighted.mean(weighted_posterior_lift, w = Bayes_Corr),
+            xG_Lift_season = weighted.mean(weighted_xG_xR_Lift_100Shots, w = xGxR_Corr),
+            SvPct_season = weighted.mean(weighted_SvPct, w = SvPct_Corr),
+            posterior_xR_overall_sd = sd(weighted_posterior_lift),
+            Bayes_Corr = mean(Bayes_Corr),
+            xGxR_Corr = mean(xGxR_Corr),
+            Bayes_xR_Corr = mean(Bayes_xR_Corr),
+            SvPct_Corr = mean(SvPct_Corr),
+            Shots_1617 = max(Shots_1617),
+            GP_1617 = max(GP_1617)) %>%
+  group_by(SA_Goalie) %>%
+  summarise(posterior_overall = weighted.mean(posterior_season, w = Bayes_Corr) -0.001,
+         posterior_xR_overall = weighted.mean(posterior_xR_season, w = Bayes_xR_Corr) -0.001,
+         posterior_xR_overall_sd = weighted.mean(posterior_xR_overall_sd, w = Bayes_xR_Corr),
+         xG_Lift_overall = weighted.mean(xG_Lift_season, w = xGxR_Corr),
+         SvPct_overall = weighted.mean(SvPct_season, w = SvPct_Corr),
+            Shots_1617 = max(Shots_1617),
+            GP_1617 = max(GP_1617))
+
+goalies_preseason_2018 <- read.csv("~/Documents/CWA/Hockey Data/goalies_preseason_2018.csv") %>%
+      inner_join(goalie_projections_2018, by = "SA_Goalie") %>%
+      group_by(Team) %>%
+      mutate(DepthChart = rank(-posterior_xR_overall)) %>%
+      filter(DepthChart < 3) %>%
+      arrange(Team, DepthChart) %>%
+      mutate(Starter_Advantge = posterior_xR_overall - lead(posterior_xR_overall),
+             Games_Projected = 41 + floor(41 * (Starter_Advantge / 0.017)),
+             Games_Projected = ifelse(is.na(Games_Projected), 82 - lag(Games_Projected),Games_Projected),
+             Bayes_Goals_Prevented = posterior_xR_overall * (Games_Projected * 28),
+             team_Bayes = weighted.mean(posterior_xR_overall, w = Games_Projected),
+             team_Bayes_Goals_Prevented = team_Bayes * (82 * 28)) 
+
+```
+
+```{r}
+
+goalies_preseason_2018_plot <- goalies_preseason_2018 %>%
+    mutate(Goalie = paste0(sapply(strsplit(as.character(SA_Goalie), ' '), function(x) x[length(x)])," (",Games_Projected,"GP)")) %>%
+    ggplot(aes(x=reorder(Team, team_Bayes_Goals_Prevented), y = Bayes_Goals_Prevented, fill=as.factor(DepthChart), label=Goalie)) +
+   geom_bar(stat="identity", alpha = 0.5, position = "dodge") +
+    geom_point(aes(x=reorder(Team, - team_Bayes_Goals_Prevented), y=team_Bayes_Goals_Prevented), size = 12, alpha = 0.25, color = "grey50") +
+    geom_text(aes(x=reorder(Team, - team_Bayes_Goals_Prevented), y=team_Bayes_Goals_Prevented, label=Team), size = 4, alpha = 0.8, color = "grey25") +
+    #geom_text(size = 3, position = position_stack(vjust = 0.5), color = "grey25") +
+    geom_text(size = 3, position = position_dodge(width = 1), color = "grey25") +
+    theme_standard() + ggthemes::scale_fill_gdocs() +
+    coord_flip() +
+    labs(x="",y="Projected Goals Prevented",fill="Depth Chart",
+         title="Projected 2017-18 Bayesian Goals Prevented Compared to Average\nGames Split Between Starter & Backup Projected Based on Difference in Ability, Assumes 28 Shots Against per Game\n@crowdscoutsprts") +
+    theme(legend.position = "bottom",
+          panel.grid.major.x = element_line( colour = "white", size = 2))
+
+ggsave(filename="/Users/colander1/Downloads/goalies_preseason_2018_plot.png", plot=goalies_preseason_2018_plot,  width=20, height=12)
+
+
+starters_preseason_2018_plot <- goalies_preseason_2018 %>%
+    mutate(MM = ifelse(SA_Goalie == "MATT MURRAY",1,0)) %>%
+    filter(DepthChart == 1) %>%
+     ggplot(aes(x=reorder(SA_Goalie, -posterior_xR_overall), y = posterior_xR_overall, fill=as.factor(MM), alpha=Games_Projected)) +
+    geom_bar(stat="identity") +
+    #geom_point(aes(x=reorder(SA_Goalie, - posterior1000_overall), y=-0.001, size = Games_Projected), alpha = 0.25, color = "grey50") +
+    #geom_text(aes(x=reorder(SA_Goalie, -posterior_xR_overall), y=ifelse(posterior_xR_overall>0,-0.1,0.1), label=paste0(Team," (",Games_Projected,"GP)")), size = 3.5, alpha = 0.8, color = "grey25") +          
+    theme_standard() + ggthemes::scale_fill_gdocs() +
+    #coord_flip() +
+    labs(x="",y="Projected Goals Prevented / 100 Shots", fill="Depth Chart",alpha="Projected Games Played",
+         title="Bayesian Goals Prevented per 100 Shots Compared to Average\nProjected 2017-18 Goalies\n@crowdscoutsprts") +
+    theme(legend.position = "bottom",
+          panel.grid.major.y = element_line( colour = "white", size = 2)) +
+      scale_y_continuous(labels = scales::percent) +
+      guides(fill=FALSE)
+
+
+ggsave(filename="/Users/colander1/Downloads/starters_preseason_2018_plot.png", plot=starters_preseason_2018_plot,  width=13, height=6)
+
+
+
+```
+
+```{r}
+
+goalie_season_results <- goalie_shot_level_prep %>%
+      group_by(SA_Goalie, season, Age) %>%
+      summarise(xG_Lift_100Shots = (sum(xG) -sum(Goal)) / (n() / 100),
+              NonRebound_Shots = sum(NonRebound_Shot),
+              Shots = n(),
+              SvPct = (Shots - sum(Goal)) / Shots, 
+              xG_FirstShot = sum(xG_FirstShot),
+              xG = sum(xG),
+              xG_RB = sum(xR * rebound_goal_probability),
+              xG_raw = sum(xG),
+              xG_xR_Lift_100Shots = (sum(xG_FirstShot + xG_RB) -sum(Goal)) / (sum(NonRebound_Shot) / 100),
+              #beta1000_a = (1 - ( (xG_FirstShot + xG_RB) / NonRebound_Shots)) * 1000,
+              beta1000_a = (1 - (xG / Shots)) * 1000,
+              beta1000_b = 1000 - beta1000_a,
+              
+              # Overall
+              likelihood_a = sum(Shots) - sum(Goal) + 1,  ## Saves + 1
+              likelihood_b = sum(Goal) + 1,  ## Goals + 1
+              
+              posterior1000_a = beta1000_a + (likelihood_a - 1),  ## Success + Beta A
+              posterior1000_b = beta1000_b +  (likelihood_b - 1) , ## Goals + Beta B
+
+                prior1000_mean      = calcBetaMean(beta1000_a, beta1000_b),
+                posterior1000_mean  = calcBetaMean(posterior1000_a, posterior1000_b),
+       
+                posterior1000_lift = posterior1000_mean - prior1000_mean) %>%
+        select(SA_Goalie, season, Age, posterior1000_lift, xG_xR_Lift_100Shots, xG_Lift_100Shots, SvPct) %>%
+        filter(season == "20162017") %>%
+        inner_join(goalie_projections_2018, by = c("SA_Goalie")) %>%
+        ungroup() %>%
+        mutate(Last_Year_Rank = rank(posterior1000_lift),
+               Current_Projection = rank(posterior1000_overall))
+
+
+
+
+l1<-paste(goalie_season_results$SA_Goalie)
+l2<-paste(goalie_season_results$SA_Goalie)
+
+actual_to_projected_slope <- ggplot(goalie_season_results) + 
+  geom_segment(aes(x=0,xend=1,y=goalie_season_results$Last_Year_Rank,yend=goalie_season_results$Current_Projection, color=as.numeric(Age)+1),size=.75) +
+  theme_standard() + 
+geom_text(label=l2, y=goalie_season_results$Current_Projection, x=1,hjust=0,size=3.5, aes(color=as.numeric(Age)+1)) +
+geom_text(label=l1, y=goalie_season_results$Last_Year_Rank, x=0,hjust=1,size=3.5, aes(color=as.numeric(Age)+1)) +
+xlim(-1,2) +
+scale_color_gradient2(low="#DC3912",high="grey50", mid="#990099",midpoint = median(as.numeric(goalie_season_results$Age))) +
+theme(axis.ticks=element_blank(),
+      axis.text=element_blank(),
+      legend.position = "bottom") +
+labs(title = "Goalie 2016-17 Ranking Compared to 2017-18 Projected Ranking\nRanked by Bayesian xG Lift",x="",y="", color="Current Age") +
+geom_text(label="2016-17 Actual\nRanking", x=0,y=(2 + (nrow(goalie_season_results))),hjust= 1,size=5, color="grey50") +
+geom_text(label="2017-18 Projected\nRanking",x=1,y=(2 + (nrow(goalie_season_results))),hjust=0,size=5, color="grey50")
+
+actual_to_projected_slope
+ggsave(filename="/Users/colander1/Downloads/actual_to_projected_slope.png", plot=actual_to_projected_slope,  width=12, height=18)
+```
+
+```{r}
+
+goalie_projections_2018_plot <- projections_2018 %>%
+    mutate(posterior_xR_overall = posterior_xR_overall * 100) %>%
+    filter(Shots_1617 > 500) %>%
+     ggplot(aes(x=reorder(SA_Goalie, posterior_xR_overall), y = posterior_xR_overall, alpha= GP_1617 )) +
+    geom_bar(stat="identity") +
+    geom_errorbar(aes(ymin=posterior_xR_overall-posterior_xR_overall_sd, ymax=posterior_xR_overall+posterior_xR_overall_sd),
+                  width=.2,                    # Width of the error bars
+                  position=position_dodge(.9)) +
+#    geom_text(aes(x=reorder(SA_Goalie, posterior_xR_overall), y=ifelse(posterior_xR_overall>0,-0.1,0.1), label=paste0(Team," (",GP_1617,"GP)")), size = 3.5, alpha = 0.8, color = "grey25") +          
+    theme_standard() + ggthemes::scale_fill_gdocs() +
+    #coord_flip() +
+    labs(x="",y="Projected Goals Prevented / 100 Shots", fill="Depth Chart",alpha="Projected Games Played",
+         title="Bayesian Goals Prevented per 100 Shots Compared to Average\nProjected 2017-18 Goalies\n@crowdscoutsprts") +
+    theme(legend.position = "top",
+          panel.grid.major.y = element_line( colour = "white", size = 2))
+
+ggsave(filename="/Users/colander1/Downloads/starters_preseason_2018_plot.png", plot=starters_preseason_2018_plot,  width=12, height=20)
+
+
+
+
+
+projections_2018_sum <- summarySE(projections_2018, measurevar="len", groupvars=c("supp","dose"))
+
+ projections_2018_sum %>%
+     ggplot(aes(x=reorder(SA_Goalie, weighted_posterior_lift_xR), y = weighted_posterior_lift_xR)) +
+    geom_bar(stat="identity") +
+    geom_errorbar(aes(ymin=weighted_posterior_lift_xR-ci, ymax=weighted_posterior_lift_xR+ci),
+                  width=.2,                    # Width of the error bars
+                  position=position_dodge(.9)) +
+#    geom_text(aes(x=reorder(SA_Goalie, posterior_xR_overall), y=ifelse(posterior_xR_overall>0,-0.1,0.1), label=paste0(Team," (",GP_1617,"GP)")), size = 3.5, alpha = 0.8, color = "grey25") +          
+    theme_standard() + ggthemes::scale_fill_gdocs() +
+    #coord_flip() +
+    labs(x="",y="Projected Goals Prevented / 100 Shots", fill="Depth Chart",alpha="Projected Games Played",
+         title="Bayesian Goals Prevented per 100 Shots Compared to Average\nProjected 2017-18 Goalies\n@crowdscoutsprts") +
+    theme(legend.position = "top",
+          panel.grid.major.y = element_line( colour = "white", size = 2))
+
+
+```

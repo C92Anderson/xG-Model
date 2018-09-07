@@ -55,6 +55,7 @@ goalie_wins <- function(szn) {
   
   ### Find
   game_outcomes <- scored_data %>%
+    filter(!(Season_Type == "RS" & Period %in% c(4,5))) %>%
     mutate(Home_Score = ifelse(Ev_Team == Home_Team & Goal == 1,1,0),
            Away_Score = ifelse(Ev_Team != Home_Team & Goal == 1,1,0),
            Home_xG = ifelse(Ev_Team == Home_Team & xG_team > 0,xG_team,0),
@@ -69,11 +70,12 @@ goalie_wins <- function(szn) {
   
   
   goalie_games <- scored_data %>%
+    filter(!(Season_Type == "RS" & Period %in% c(4,5))) %>%
     filter(SA_Goalie != "") %>%
     mutate(Goalie = sapply(strsplit(as.character(SA_Goalie), ' '), function(x) x[length(x)]),
            SA = 1,
-           xGA = ifelse(is_Rebound == 0, sum(xG_raw + (xR * rebound_goal_probability)),0),
-           SA_Team = ifelse(Ev_Team == Home_Team, Away_Team, Home_Team),
+           xGA = ifelse(is_Rebound == 0, xG_raw + (xR * rebound_goal_probability),0),
+           SA_Team = ifelse(Ev_Team == Home_Team, as.character(Away_Team),as.character(Home_Team)),
            SA_Venue = ifelse(Ev_Team == Home_Team, "Away", "Home")) %>%
     group_by(SA_Goalie, SA_Venue, SA_Team, season, season2, Game_Id) %>%
     #Total xG and Goals
@@ -81,26 +83,68 @@ goalie_wins <- function(szn) {
               GA = sum(Goal))
   
   ## Function to calculate win probability based on xGF & xGA
-  win_probabibilty <- function(xG_support, GF, xGA, sims = 100, type="GF") {
+  expected_points <- function(GF=3, xGA=3, sims = 100) {
     
     outcome <- vector(length=sims)
+    ot <- vector(length=sims)
+    ga <- vector(length=sims)
     
     for(i in 1:sims) {
-      
-      GF <- ifelse(type == "GF", GF, round(sum(rbinom(size=1, prob=xG_support/30, n=30)),1))
+
       GA <- sum(rbinom(size=1, prob=xGA/30, n=30))
       
-      outcome[i] <- ifelse(GF > GA,2, 
-                          ifelse(GF == GA,1.5,0))
+      sim_game <- ifelse(GF == GA,1 + rbinom(size=1, prob=0.5, n=1),
+                  ifelse(GA < GF,2,0))
+
+      outcome[i] <- sim_game
+      ot[i] <- GF == GA
+      ga[i] <- GA
       
-    }  
-    return(mean(outcome))
+      print(paste0(GA," GA, ",sim_game," Points, OT:", GF == GA," Sim: ",i))
+      
+    }
+    
+    expected_points <- mean(outcome)
+    #print(expected_points)
+    #print(mean(ot))
+    #data.frame(GA = ga) %>% group_by(GA) %>% summarise(cnt = n()) %>% print()
+    
+    #print(paste0("Sims: ",length(outcome)))
+    #share_ot <- mean(outcome == 1.5))
+    return((expected_points))
     
   }
   
-  win_probabibilty(xG_support=1, GF=3, xGA=3, sims=100, type="GF")
+
+out <-  expected_points(GF=3, xGA=3, sims=100)
   
-  goalie_games_wresult <- goalie_games %>%
+  simulations <- c()
+
+  for(i in c(1:1000)) {
+    
+    simulations[i] <- expected_points(GF=3, xGA=3, sims=1000)
+  }
+  
+  mean(simulations)
+  ggplot() + geom_density(aes(simulations))
+  
+  
+  gf = c(1:8)
+  GA = c(1:8)
+  
+  win_matrix <- do.call(rbind,lapply(FUN=expected_points,gf,gf))
+  
+  GA_vec <- vector(length=100)
+  
+  for(i in 1:100) {
+    
+    GA_vec[i] <- sum(rbinom(size=1, prob=3/40, n=40))
+  
+  }
+  
+  data.frame(GA = GA_vec) %>% group_by(GA) %>% summarise(cnt = n())
+
+    goalie_games_wresult <- goalie_games %>%
     group_by(SA_Team, season, season2, Game_Id) %>%
     summarise(team.goalies = uniqueN(SA_Goalie)) %>%
     inner_join(goalie_games, by = c("SA_Team", "season","season2","Game_Id")) %>%
@@ -109,13 +153,36 @@ goalie_wins <- function(szn) {
     rowwise() %>% 
     mutate(xGF = ifelse(SA_Venue == "Home", Home_xG, Away_xG),
            Goal_Support = ifelse(SA_Venue == "Home", Home_Score, Away_Score),
-           Expected_Points_GF = win_probabibilty(xGF, Goal_Support, xGA, 1000, type = "GF"),
-           Expected_Points_xGF = win_probabibilty(xGF, Goal_Support, xGA, 1000, type = "xGF"),
+           Expected_Points = expected_points(Goal_Support, xGA, 1000),
            Actual_Points = ifelse(SA_Venue == "Home" & Home_Score > GA,2,
                            ifelse(SA_Venue == "Away" & Away_Score > GA,2,
                            ifelse(Away_Score == Home_Score, 1.5, 0)))) 
   
-  
+
+expected_points_data <- goalie_games_wresult %>% 
+      mutate(xGA = round(xGA,1)) %>% 
+      group_by(Goal_Support, xGA) %>% 
+      summarise(Actual_Points = mean(Actual_Points), Sample = n())
+
+expected_points_plot <- expected_points_data %>%
+      #filter(Sample > 30) %>%
+      ggplot(aes(y=Actual_Points, x=xGA, color = as.factor(ifelse(Goal_Support <6,Goal_Support,"6+")), alpha=Sample, size=Sample)) +
+      geom_point() +
+      geom_smooth(data = expected_points_data[expected_points_data$Sample > 20, ], method = "lm", se = FALSE, aes(size=2)) +
+      theme_standard() + ggthemes::scale_color_gdocs() +
+      #scale_fill_gradient2(low="#DC3912",high="#109618", mid="#990099") +
+      scale_alpha_continuous(range = c(0.1, 0.8)) +
+      #scale_x_discrete(breaks = c(1:8)) +
+      labs(title = "Average Standings Points Gained by Team Goal Support and Expected Goals Against",
+           color = "Goal Support",
+           size="Sample Games",alpha="Sample Games",
+           x="Expected Goals Against Goalie",
+           y="Average Standings Points")
+      
+ggsave(filename=paste0("/Users/colander1/Downloads/expected_points_plot.png"), plot=expected_points_plot,  width=13,
+       height=12)
+
+
   goalie_games_wresult2 <- goalie_games_wresult %>%
     select(-starts_with("home"),
            -starts_with("away")) %>%

@@ -1,0 +1,12 @@
+name: GoalGradientAscent
+title: GoalGradientAscent
+username:
+account: crowdscoutsports
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 361113
+bundleId: 1430464
+url: https://crowdscoutsports.shinyapps.io/GoalGradientAscent/
+when: 1529015445.24328
+asMultiple: FALSE
+asStatic: FALSE

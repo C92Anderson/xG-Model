@@ -1,0 +1,246 @@
+---
+title: "Team Elo Rating and Trends"
+resource_files:
+- team_day_ratings_lag.csv
+runtime: shiny
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+
+library(plotly); library(dplyr); library(ggplot2); library(shiny)
+
+txt <- element_text(size = 18, colour = "grey25", face = "plain")
+bold_txt <- element_text(size = 20, colour = "navy", face = "bold")
+
+theme_standard <- function(base_size = 16, base_family = "") {
+  theme_bw(base_size = base_size, base_family = base_family) +
+    theme(
+      strip.background = element_blank(), 
+      
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_line( colour = "white", size = 2), 
+      panel.grid.major.x = element_line( colour = "white", size = 2), 
+      
+      #strip.text.x = element_text(size = 24),
+      #strip.text.y = element_text(size = 24),
+      
+      panel.background = element_rect(fill="grey90"),
+      plot.background = element_rect(fill="grey90"),
+      legend.background = element_rect(fill="grey90"),
+      legend.key = element_rect(fill="grey90", size = 20),
+      legend.key.size = unit(1,"cm"),
+      
+      panel.border = element_blank(), 
+      
+      line = element_line( colour = "white", size = 2),
+      axis.text.x = element_text(angle = 90, hjust = 1),
+      text = txt, 
+      plot.title = bold_txt, 
+      
+      axis.title = txt, 
+      axis.text = txt, 
+      
+      legend.title = bold_txt, 
+      legend.text = txt ) 
+}
+
+
+team_day_ratings <- read.csv("team_day_ratings_lag.csv") %>% 
+        mutate(date = as.Date(date, format = "%m/%d/%Y")) %>%
+        filter(date != "1997-09-30") %>%
+        arrange(date) %>%
+        group_by(team) %>%
+        mutate(#class = ifelse(max(EloRating) == EloRating, "max",
+              #       ifelse(min(EloRating) == EloRating, "min", NA)),
+             GameNumber = row_number(),
+             Season = as.factor(ifelse(lubridate::month(date) %in% c(9,10,11,12), 
+                             paste0(lubridate::year(date), lubridate::year(date) + 1),
+                            paste0(lubridate::year(date) - 1, lubridate::year(date))))
+             ) %>%
+        ungroup()
+
+game_ratings <- reactive({
+        
+      team_abb <- input$team
+
+      team_day_ratings_team <- team_day_ratings %>%
+              filter(team == team_abb)
+
+
+      return(team_day_ratings_team)
+
+})
+
+game_ratings_scored <- reactive({
+
+      poly_degree <- input$poly_degree
+
+      model <- summary(lm(data = game_ratings(), EloRating ~ poly(GameNumber, degree = poly_degree, raw=TRUE)))
+      
+      derivatives <- data.frame(term = rownames(model$coefficients),
+                                model$coefficients) %>%
+              tidyr::separate("term", c("term","pow"), sep = "[)]", remove = TRUE, fill = "left") 
+
+        args <- "X"
+        
+        derivative_strings <- derivatives %>%
+                mutate(pow = as.numeric(pow),
+                       pow_1st = ifelse(pow - 1 >= 0, pow - 1, NA),
+                       pow_2nd = ifelse(pow - 2 >= 0, pow - 2, NA),
+                       fx_term = ifelse(is.na(pow),paste0(Estimate),
+                              ifelse(pow > 0,paste0(Estimate, " * X**",pow),
+                                            paste0(Estimate))),
+                       df_dx_term = ifelse(pow_1st == 0,paste0(Estimate),
+                                    ifelse(pow_1st > 0,paste0(pow * Estimate, " * X**",pow_1st), NA))
+                       #df2_dx_term = ifelse(pow_2st >= 0 0,paste0(pow * Estimate, " * X**",pow_1st), NA)
+                       )
+        
+        ## Create function f(x,y)
+        function_str <- derivative_strings %>% select(fx_term) %>% na.omit() %>% group_by() %>% summarise(f = paste0(fx_term, collapse = " + "))
+        eval(parse(text = paste('f_xy <- function(', args, ') { return(' , function_str , ')}', sep='')))
+        
+        ## Create function df/dx
+        function_df_dx <- derivative_strings %>% select(df_dx_term) %>% na.omit() %>% group_by() %>% summarise(df_dx = paste0(df_dx_term, collapse = " + "))
+        eval(parse(text = paste('df_dx <- function(', args, ') { return(' , function_df_dx , ')}', sep='')))
+        
+
+    
+        game_ratings_scored <- game_ratings() %>%
+              mutate(ModelElo = f_xy(GameNumber),
+                     RateChange = df_dx(GameNumber)
+                     )
+        
+        return(game_ratings_scored)
+      
+})
+
+# team_col <- team_day_ratings_team %>% select(team) %>% distinct()
+# 
+# team_col$col <- rep(1:6, times=500)[1:nrow(team_col)]
+# 
+# team_max_min_plot <- team_day_ratings_team %>%
+#        filter(!is.na(class)) %>%
+#         left_join(team_col, by = "team") %>%
+#         ggplot(aes(x=date, y=EloRating, fill=as.factor(col), color=as.factor(col), label=paste0(team,"\n",date))) +
+#         geom_hline(yintercept = 1500, color = "grey50", size = 3, alpha = 0.7) +
+#         #geom_line(size = 2, alpha = 0.9) +
+#         geom_point(size = 3) +
+#         ggrepel::geom_label_repel(color = "grey90") + 
+#         theme_standard() + ggthemes::scale_fill_gdocs() + ggthemes::scale_color_gdocs() +
+#         labs(title = paste0("Team Peaks and Valleys, 1997-2018\n@crowdscoutsprts (crowdscoutsports.com/team_elo.php)"),
+#              x="Date",
+#              y="Elo Rating") +
+#         guides(color = FALSE, fill = FALSE)
+#   
+# ggsave(filename = paste0("/Users/colander1/Downloads/team_max_min_plot.png"), plot = team_max_min_plot, height = 11, width = 16)
+
+```
+
+Sidebar {.sidebar}
+=====================================
+
+## Select Inputs
+
+```{r}
+
+output$team_input <- renderUI({
+    
+    teams <- c('ANA',	'ARI',	'BOS',	'BUF',	'CAR',	'CBJ',	'CGY',	'CHI',	'COL',	'DAL',	'DET',	'EDM',	'FLA',	'LAK',	'MIN',	'MTL',	'NJD',	'NSH',	'NYI',	'NYR',	'OTT',	'PHI',	'PIT',	'SJS',	'STL',	'TBL',	'TOR',	'VAN',	'VGK',	'WPG',	'WSH')
+
+
+    selectizeInput("team", "Select Team(s): ",
+                  c(teams),
+                  multiple = FALSE,
+                  selected = "WSH"
+                  )
+})
+
+uiOutput("team_input")
+
+```
+
+Increasing the polynomial degree increases the complexity of the modeled team rating over time.
+
+
+```{r}
+output$poly_input <- renderUI({
+
+  inputPanel(
+  sliderInput("poly_degree","Polynomial Degree:", min = 2, max = 20, step = 1, value = 10)
+  )
+})
+
+uiOutput("poly_input")  
+
+```
+
+Team Elo Over Time
+============================================================================
+
+Row {data-height=500}
+-------------------------------------
+
+### Team Rating By Game
+
+```{r}
+
+renderPlotly({
+
+team_abb <- input$team
+
+team_plot <- ggplot() +
+        geom_line(data = team_day_ratings, aes(x=GameNumber, y=EloRating), color = "grey50", alpha = 0.1) +
+        geom_hline(yintercept = 1500, color = "grey50", size = 3, alpha = 0.7) +
+        geom_point(data = game_ratings_scored(), aes(x=GameNumber, y=EloRating, color = Season), size = 3, alpha = 0.3) +
+        geom_line(data = game_ratings_scored(), aes(x=GameNumber, y=ModelElo), color = "grey20", size = 3, alpha = 0.8) +
+        #ggrepel::geom_label_repel(data = game_ratings_scored(), aes(x=GameNumber, y=EloRating, label=ifelse(!is.na(class), paste0(team,"\n",date), NA)), color = "grey90") +
+        theme_standard() + ggthemes::scale_fill_gdocs() + ggthemes::scale_color_gdocs() +
+        labs(title = paste0(team_abb," Team Elo Rating, 1997-2018\n@crowdscoutsprts (crowdscoutsports.com/team_elo.php)"),
+             x="Game Number",
+             y="Elo Rating",
+             color = "Season") +
+        guides(color = FALSE, fill = FALSE)
+
+  a <- ggplotly(team_plot, height = 500, width = 1600) %>%
+            layout(showlegend = FALSE)
+
+  a
+})
+
+```
+
+Row {data-height=500}
+-------------------------------------
+
+### Rate of Change of Team Strength
+The rate of change of team strength is the first order derivative of the modeled team strength (as a function of game number, grey line above), conveying if a team is getting better or worse at any given point in time. Where the rate crosses the x=0 axis signifies bottoming out or maxing out.
+
+```{r}
+
+renderPlotly({
+
+team_abb <- input$team
+
+team_plot <- ggplot() +
+        geom_hline(yintercept = 0, color = "grey50", size = 3, alpha = 0.7) +
+        geom_line(data = game_ratings_scored(), aes(x=GameNumber, y=RateChange, color = Season), size = 3, alpha = 0.8) +
+        #ggrepel::geom_label_repel(data = game_ratings_scored(), aes(x=GameNumber, y=EloRating, label=ifelse(!is.na(class), paste0(team,"\n",date), NA)), color = "grey90") +
+        theme_standard() + ggthemes::scale_fill_gdocs() + ggthemes::scale_color_gdocs() +
+        labs(title = paste0(team_abb," Team Trends, 1997-2018\n@crowdscoutsprts (crowdscoutsports.com/team_elo.php)"),
+             x="Game Number",
+             y="Rate of Change",
+             color = "Season") +
+        guides(color = FALSE, fill = FALSE)
+
+  a <- ggplotly(team_plot, height = 500, width = 1600) %>%
+            layout(showlegend = FALSE)
+
+  a
+})
+
+```
